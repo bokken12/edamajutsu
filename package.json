@@ -58,12 +58,20 @@
       {
         "command": "edamajutsu.refresh",
         "title": "Edamajutsu: Refresh"
+      },
+      {
+        "command": "edamajutsu.visitAtPoint",
+        "title": "Edamajutsu: Visit at Point"
       }
     ],
     "menus": {
       "commandPalette": [
         {
           "command": "edamajutsu.refresh",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.visitAtPoint",
           "when": "editorLangId == edamajutsu"
         }
       ]
@@ -77,6 +85,11 @@
       {
         "command": "edamajutsu.openLog",
         "key": "l",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.visitAtPoint",
+        "key": "enter",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]

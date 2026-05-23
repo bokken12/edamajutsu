@@ -15,6 +15,7 @@ export function commitId(value: string): CommitId {
 export type Change = {
   readonly changeId: ChangeId;
   readonly commitId: CommitId;
+  readonly description: string;
   readonly descriptionFirstLine: string;
   readonly authorName: string;
   readonly authorEmail: string;

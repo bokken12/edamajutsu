@@ -40,6 +40,7 @@ function parseLogRecord(line: string): Change {
   const [
     changeIdRaw,
     commitIdRaw,
+    descriptionRaw,
     descriptionFirstLineRaw,
     authorNameRaw,
     authorEmailRaw,
@@ -48,11 +49,12 @@ function parseLogRecord(line: string): Change {
     conflictRaw,
     emptyRaw,
     workingCopyRaw
-  ] = fields as [string, string, string, string, string, string, string, string, string, string];
+  ] = fields as [string, string, string, string, string, string, string, string, string, string, string];
 
   return {
     changeId: changeId(changeIdRaw),
     commitId: commitId(commitIdRaw),
+    description: parseJsonString(descriptionRaw, line),
     descriptionFirstLine: parseJsonString(descriptionFirstLineRaw, line),
     authorName: parseJsonString(authorNameRaw, line),
     authorEmail: authorEmailRaw,

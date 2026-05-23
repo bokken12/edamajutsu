@@ -38,6 +38,7 @@ export async function runDriverTests(): Promise<void> {
   await testLogRejectsInvalidLimit();
   await testDiffSummaryReportsWorkingCopyChanges();
   await testLogGraphParsesGraphAndContinuationLines();
+  await testDiffTextReturnsGitFormat();
 }
 
 async function testLogReturnsTypedRecordsAgainstRealRepo(): Promise<void> {
@@ -54,6 +55,8 @@ async function testLogReturnsTypedRecordsAgainstRealRepo(): Promise<void> {
   assert.ok(first, 'expected the "first change" record');
   assert.ok(second, 'expected the "second change" record');
 
+  // jj normalises every description to end with a trailing newline.
+  assert.strictEqual(second.description, 'second change\nwith body\n');
   assert.strictEqual(second.descriptionFirstLine, 'second change');
   assert.strictEqual(second.authorName, 'Test User');
   assert.strictEqual(second.authorEmail, 'test@example.com');
@@ -83,13 +86,22 @@ async function testLogRespectsRevset(): Promise<void> {
 // JSON.
 async function testLogSurvivesControlBytesInDescription(): Promise<void> {
   const root = buildFixtureRepo();
-  const dangerous = 'has \x1eRS\x1cFS bytes';
+  const dangerous = 'has \x1eRS\x1cFS\x1fUS\nbytes';
   jjSync(root, ['describe', '-m', dangerous]);
 
   const driver = new JjDriver({ repoRoot: root });
   const [head] = await driver.log({ revset: '@', limit: 1 });
   assert.ok(head);
-  assert.strictEqual(head.descriptionFirstLine, dangerous);
+  assert.strictEqual(head.description, `${dangerous}\n`);
+}
+
+async function testDiffTextReturnsGitFormat(): Promise<void> {
+  const root = buildFixtureRepo();
+  const driver = new JjDriver({ repoRoot: root });
+  // The fixture leaves b.txt added on top of @ (second change).
+  const diff = await driver.diffText({ revset: '@', snapshot: true });
+  assert.match(diff, /^diff --git a\/b\.txt b\/b\.txt$/m);
+  assert.match(diff, /\+two$/m);
 }
 
 async function testLogRejectsInvalidLimit(): Promise<void> {

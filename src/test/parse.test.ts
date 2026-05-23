@@ -6,6 +6,7 @@ import { FIELD_SEP, LIST_ITEM_SEP, RECORD_PREFIX } from '../jj/templates';
 type FieldOverrides = {
   changeId?: string;
   commitId?: string;
+  description?: string;
   descriptionFirstLine?: string;
   authorName?: string;
   authorEmail?: string;
@@ -21,6 +22,7 @@ function buildRecord(o: FieldOverrides): string {
   return [
     o.changeId ?? 'c',
     o.commitId ?? 'h',
+    j(o.description),
     j(o.descriptionFirstLine),
     j(o.authorName ?? 'A'),
     o.authorEmail ?? 'a@x',
@@ -53,6 +55,7 @@ function testParsesSingleRecord(): void {
   const record = buildRecord({
     changeId: 'abcd1234',
     commitId: 'ef567890',
+    description: 'subject\nbody line 1\nbody line 2',
     descriptionFirstLine: 'subject',
     authorName: 'Alice',
     authorEmail: 'alice@example.com',
@@ -65,6 +68,7 @@ function testParsesSingleRecord(): void {
   assert.ok(change);
   assert.strictEqual(change.changeId, 'abcd1234');
   assert.strictEqual(change.commitId, 'ef567890');
+  assert.strictEqual(change.description, 'subject\nbody line 1\nbody line 2');
   assert.strictEqual(change.descriptionFirstLine, 'subject');
   assert.strictEqual(change.authorName, 'Alice');
   assert.strictEqual(change.authorEmail, 'alice@example.com');
@@ -94,16 +98,22 @@ function testEmptyListFieldsBecomeEmptyArrays(): void {
   assert.ok(change);
   assert.deepStrictEqual([...change.parents], []);
   assert.deepStrictEqual([...change.bookmarks], []);
+  assert.strictEqual(change.description, '');
   assert.strictEqual(change.descriptionFirstLine, '');
 }
 
-// Regression: a first-line description that happens to contain our RS / FS
-// separator bytes must round-trip via escape_json + JSON.parse.
+// Regression: a description that happens to contain our RS / FS separator
+// bytes must round-trip via escape_json + JSON.parse. Multi-line bodies are
+// also preserved because escape_json keeps real newlines as `\n`.
 function testDescriptionFirstLineSurvivesControlBytes(): void {
   const dangerous = `has${FIELD_SEP}RS and ${LIST_ITEM_SEP}FS bytes`;
-  const [change] = parseLogRecords(buildRecord({ descriptionFirstLine: dangerous }));
+  const multi = `${dangerous}\nsecond body line`;
+  const [change] = parseLogRecords(
+    buildRecord({ description: multi, descriptionFirstLine: dangerous })
+  );
   assert.ok(change);
   assert.strictEqual(change.descriptionFirstLine, dangerous);
+  assert.strictEqual(change.description, multi);
 }
 
 function testBookmarksAreJsonDecoded(): void {
