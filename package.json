@@ -38,7 +38,8 @@
     "build": "webpack --mode development",
     "watch": "webpack --mode development --watch",
     "compile": "tsc -p ./",
-    "test": "tsc -p ./ && node ./out/test/run.js"
+    "test": "tsc -p ./ && node ./out/test/run.js",
+    "demo:log": "tsc -p ./ && node ./out/demo/log.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
