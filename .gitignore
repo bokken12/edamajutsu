@@ -1,0 +1,12 @@
+# Editor swap / backup files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Node / VSCode extension build artifacts
+node_modules/
+out/
+dist/
+*.vsix
+.vscode-test/
