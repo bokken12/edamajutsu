@@ -64,7 +64,38 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('edamajutsu.edit', () =>
       onEdit(statusView, logView, commitView, opLogView)
+    ),
+    vscode.commands.registerCommand('edamajutsu.bookmark', () =>
+      onBookmark(statusView, logView, commitView, opLogView)
     )
+  );
+}
+
+async function onBookmark(
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView
+): Promise<void> {
+  const changeId = activeChangeId(status, log, commit);
+  if (!changeId) {
+    vscode.window.showInformationMessage('edamajutsu: no change selected for the bookmark.');
+    return;
+  }
+  const name = await vscode.window.showInputBox({
+    prompt: `Create bookmark at ${changeId.slice(0, 8)}`,
+    placeHolder: 'errors if a bookmark with this name already exists'
+  });
+  if (name === undefined || name.trim() === '') {
+    return;
+  }
+  await runMutation(
+    `jj bookmark create ${name}`,
+    status,
+    log,
+    commit,
+    opLog,
+    (d) => d.createBookmark(name.trim(), changeId)
   );
 }
 
