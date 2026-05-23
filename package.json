@@ -1,0 +1,51 @@
+{
+  "name": "edamajutsu",
+  "displayName": "edamajutsu",
+  "description": "Magit-style interface for Jujutsu (jj) in VSCode",
+  "version": "0.0.1",
+  "preview": true,
+  "publisher": "crouton-ai",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "keywords": [
+    "jj",
+    "jujutsu",
+    "magit",
+    "vcs"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bokken12/edamajutsu.git"
+  },
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "edamajutsu.openStatus",
+        "title": "Edamajutsu: Open Status"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "webpack --mode production",
+    "build": "webpack --mode development",
+    "watch": "webpack --mode development --watch",
+    "compile": "tsc -p ./",
+    "test": "tsc -p ./ && node ./out/test/run.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4"
+  }
+}
