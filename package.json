@@ -29,8 +29,12 @@
     "languages": [
       {
         "id": "edamajutsu",
-        "aliases": ["Edamajutsu"],
-        "extensions": [".edamajutsu"],
+        "aliases": [
+          "Edamajutsu"
+        ],
+        "extensions": [
+          ".edamajutsu"
+        ],
         "configuration": "./languages/edamajutsu.language-configuration.json"
       }
     ],
@@ -108,7 +112,9 @@
     "build": "webpack --mode development",
     "watch": "webpack --mode development --watch",
     "compile": "tsc -p ./",
-    "test": "tsc -p ./ && node ./out/test/run.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:update": "vitest run -u",
     "demo:log": "tsc -p ./ && node ./out/demo/log.js",
     "demo:log:graph": "tsc -p ./ && node ./out/demo/logGraph.js"
   },
@@ -117,6 +123,7 @@
     "@types/vscode": "^1.85.0",
     "ts-loader": "^9.5.1",
     "typescript": "^5.3.3",
+    "vitest": "^4.1.7",
     "webpack": "^5.89.0",
     "webpack-cli": "^5.1.4"
   }

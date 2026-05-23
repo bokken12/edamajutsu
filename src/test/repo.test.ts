@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import * as assert from 'assert';
+import { expect, test } from 'vitest';
 
 import { findJjRepo } from '../jj/repo';
 
@@ -9,43 +9,33 @@ function mkTmp(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-export function runRepoTests(): void {
-  testFindsRepoAtRoot();
-  testFindsRepoFromSubdirectory();
-  testReturnsUndefinedWhenNoRepo();
-  testIgnoresJjFile();
-}
-
-function testFindsRepoAtRoot(): void {
+test('finds repo at root', () => {
   const root = mkTmp('eda-repo-root-');
   fs.mkdirSync(path.join(root, '.jj'));
 
   const found = findJjRepo(root);
-  assert.ok(found, 'expected to find a repo');
-  assert.strictEqual(fs.realpathSync(found.root), fs.realpathSync(root));
-}
+  expect(found).toBeDefined();
+  expect(fs.realpathSync(found!.root)).toBe(fs.realpathSync(root));
+});
 
-function testFindsRepoFromSubdirectory(): void {
+test('finds repo from a nested subdirectory', () => {
   const root = mkTmp('eda-repo-sub-');
   fs.mkdirSync(path.join(root, '.jj'));
   const sub = path.join(root, 'a', 'b', 'c');
   fs.mkdirSync(sub, { recursive: true });
 
   const found = findJjRepo(sub);
-  assert.ok(found, 'expected to find a repo from a subdirectory');
-  assert.strictEqual(fs.realpathSync(found.root), fs.realpathSync(root));
-}
+  expect(found).toBeDefined();
+  expect(fs.realpathSync(found!.root)).toBe(fs.realpathSync(root));
+});
 
-function testReturnsUndefinedWhenNoRepo(): void {
+test('returns undefined when no .jj exists upwards', () => {
   const root = mkTmp('eda-repo-none-');
-  const found = findJjRepo(root);
-  assert.strictEqual(found, undefined);
-}
+  expect(findJjRepo(root)).toBeUndefined();
+});
 
-function testIgnoresJjFile(): void {
+test('ignores a `.jj` that is a file, not a directory', () => {
   const root = mkTmp('eda-repo-file-');
   fs.writeFileSync(path.join(root, '.jj'), 'this is a file, not a dir');
-
-  const found = findJjRepo(root);
-  assert.strictEqual(found, undefined);
-}
+  expect(findJjRepo(root)).toBeUndefined();
+});
