@@ -161,6 +161,12 @@ export class JjDriver {
     await this.runChecked(['describe', '-m', message], { snapshot: true });
   }
 
+  // Abandons the given change (its descendants are rebased onto its parents).
+  // Recoverable via `undo()`.
+  async abandon(revset: string): Promise<void> {
+    await this.runChecked(['abandon', revset], { snapshot: true });
+  }
+
   private async runChecked(
     args: ReadonlyArray<string>,
     opts?: CommandOptions

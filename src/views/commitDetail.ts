@@ -45,6 +45,10 @@ export class CommitDetailView implements vscode.TextDocumentContentProvider {
     return new Map();
   }
 
+  currentChangeId(): ChangeId | undefined {
+    return this.current;
+  }
+
   async show(changeId: ChangeId, snapshot: boolean): Promise<void> {
     this.current = changeId;
     await this.refresh(snapshot);
