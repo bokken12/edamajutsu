@@ -36,6 +36,7 @@ export async function runDriverTests(): Promise<void> {
   await testLogRespectsRevset();
   await testLogSurvivesControlBytesInDescription();
   await testLogRejectsInvalidLimit();
+  await testDiffSummaryReportsWorkingCopyChanges();
 }
 
 async function testLogReturnsTypedRecordsAgainstRealRepo(): Promise<void> {
@@ -52,8 +53,7 @@ async function testLogReturnsTypedRecordsAgainstRealRepo(): Promise<void> {
   assert.ok(first, 'expected the "first change" record');
   assert.ok(second, 'expected the "second change" record');
 
-  // jj normalises every description to end with a trailing newline.
-  assert.strictEqual(second.description, 'second change\nwith body\n');
+  assert.strictEqual(second.descriptionFirstLine, 'second change');
   assert.strictEqual(second.authorName, 'Test User');
   assert.strictEqual(second.authorEmail, 'test@example.com');
   assert.ok(second.isWorkingCopy, 'second change should be @');
@@ -77,17 +77,18 @@ async function testLogRespectsRevset(): Promise<void> {
   assert.ok(changes[0]!.isWorkingCopy);
 }
 
-// Regression: a description containing the same control bytes we use as
-// separators (RS, FS, US) must round-trip cleanly through escape_json / JSON.
+// Regression: a description's first line containing the same control bytes we
+// use as separators (RS, FS) must round-trip cleanly through escape_json /
+// JSON.
 async function testLogSurvivesControlBytesInDescription(): Promise<void> {
   const root = buildFixtureRepo();
-  const dangerous = 'has \x1eRS\x1cFS\x1fUS\nbytes';
+  const dangerous = 'has \x1eRS\x1cFS bytes';
   jjSync(root, ['describe', '-m', dangerous]);
 
   const driver = new JjDriver({ repoRoot: root });
   const [head] = await driver.log({ revset: '@', limit: 1 });
   assert.ok(head);
-  assert.strictEqual(head.description, `${dangerous}\n`);
+  assert.strictEqual(head.descriptionFirstLine, dangerous);
 }
 
 async function testLogRejectsInvalidLimit(): Promise<void> {
@@ -95,4 +96,17 @@ async function testLogRejectsInvalidLimit(): Promise<void> {
   const driver = new JjDriver({ repoRoot: root });
   await assert.rejects(() => driver.log({ limit: -1 }), /non-negative integer/);
   await assert.rejects(() => driver.log({ limit: 1.5 }), /non-negative integer/);
+}
+
+async function testDiffSummaryReportsWorkingCopyChanges(): Promise<void> {
+  const root = buildFixtureRepo();
+  // The fixture leaves b.txt added on top of @ (second change). Modify a.txt
+  // as well so we have both kinds in the same diff.
+  fs.writeFileSync(path.join(root, 'a.txt'), 'one updated\n');
+
+  const driver = new JjDriver({ repoRoot: root });
+  const files = await driver.diffSummary({ snapshot: true });
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  assert.strictEqual(byPath.get('b.txt')?.kind, 'added');
+  assert.strictEqual(byPath.get('a.txt')?.kind, 'modified');
 }

@@ -1,7 +1,8 @@
 import { spawn } from 'child_process';
 import { Change } from '../model/change';
-import { parseLogRecords } from './parse';
-import { LOG_TEMPLATE } from './templates';
+import { FileChange } from '../model/fileChange';
+import { parseDiffSummary, parseLogRecords } from './parse';
+import { DIFF_SUMMARY_TEMPLATE, LOG_TEMPLATE } from './templates';
 
 export type JjResult = {
   readonly stdout: string;
@@ -28,11 +29,23 @@ export class JjCommandError extends Error {
   }
 }
 
-export type LogOptions = {
+export type CommandOptions = {
+  // When true, jj will snapshot the working copy before answering. Default
+  // false — most reads should be passive.
+  readonly snapshot?: boolean;
+};
+
+export type LogOptions = CommandOptions & {
   // Override the configured default revset. Leave undefined to use `revsets.log`.
   readonly revset?: string;
   // Cap on records returned. Maps to jj's `-n`. Must be a non-negative integer.
   readonly limit?: number;
+};
+
+export type DiffSummaryOptions = CommandOptions & {
+  // Revset of changes to diff. Default: the working copy's own changes (jj's
+  // own default for `jj diff` with no `-r`).
+  readonly revset?: string;
 };
 
 export type JjDriverOptions = {
@@ -76,11 +89,28 @@ export class JjDriver {
       }
       args.push('-n', String(opts.limit));
     }
-    const result = await this.run(args);
+    const result = await this.runChecked(args, opts);
+    return parseLogRecords(result.stdout);
+  }
+
+  async diffSummary(opts?: DiffSummaryOptions): Promise<FileChange[]> {
+    const args = ['diff', '-T', DIFF_SUMMARY_TEMPLATE];
+    if (opts?.revset !== undefined) {
+      args.push('-r', opts.revset);
+    }
+    const result = await this.runChecked(args, opts);
+    return parseDiffSummary(result.stdout);
+  }
+
+  private async runChecked(
+    args: ReadonlyArray<string>,
+    opts?: CommandOptions
+  ): Promise<JjResult> {
+    const result = await this.run(args, opts);
     if (result.exitCode !== 0 || result.signal !== null) {
       throw new JjCommandError(args, result);
     }
-    return parseLogRecords(result.stdout);
+    return result;
   }
 }
 

@@ -16,7 +16,6 @@ export type Change = {
   readonly changeId: ChangeId;
   readonly commitId: CommitId;
   readonly descriptionFirstLine: string;
-  readonly description: string;
   readonly authorName: string;
   readonly authorEmail: string;
   readonly parents: ReadonlyArray<ChangeId>;
