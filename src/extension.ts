@@ -56,15 +56,54 @@ async function onRefresh(
   }
   const uriString = activeUri.toString();
   if (uriString === STATUS_URI.toString()) {
-    await status.refresh(true);
+    await withPreservedCursor(STATUS_URI, () => status.refresh(true));
   } else if (uriString === LOG_URI.toString()) {
-    await log.refresh(true);
+    await withPreservedCursor(LOG_URI, () => log.refresh(true));
   } else if (uriString === COMMIT_DETAIL_URI.toString()) {
-    await commit.refresh(true);
+    await withPreservedCursor(COMMIT_DETAIL_URI, () => commit.refresh(true));
   } else if (uriString === OP_LOG_URI.toString()) {
     // Op log refresh is always passive — see OpLogView for why.
-    await opLog.refresh();
+    await withPreservedCursor(OP_LOG_URI, () => opLog.refresh());
   }
+}
+
+async function withPreservedCursor(uri: vscode.Uri, refresh: () => Promise<void>): Promise<void> {
+  const editor = vscode.window.visibleTextEditors.find(
+    (e) => e.document.uri.toString() === uri.toString()
+  );
+  if (!editor) {
+    await refresh();
+    return;
+  }
+
+  const saved = editor.selection.active;
+
+  // VSCode applies content from TextDocumentContentProvider asynchronously
+  // after onDidChange fires; wait for the update before measuring line count.
+  // An unchanged refresh emits no event — fall through after 250ms.
+  const documentChanged = new Promise<void>((resolve) => {
+    const disposable = vscode.workspace.onDidChangeTextDocument((e) => {
+      if (e.document.uri.toString() === uri.toString()) {
+        disposable.dispose();
+        resolve();
+      }
+    });
+    setTimeout(() => {
+      disposable.dispose();
+      resolve();
+    }, 250);
+  });
+
+  await refresh();
+  await documentChanged;
+
+  const maxLine = Math.max(0, editor.document.lineCount - 1);
+  const line = Math.min(saved.line, maxLine);
+  const lineText = editor.document.lineAt(line).text;
+  const character = Math.min(saved.character, lineText.length);
+  const position = new vscode.Position(line, character);
+  editor.selection = new vscode.Selection(position, position);
+  editor.revealRange(new vscode.Range(position, position));
 }
 
 async function onVisitAtPoint(
