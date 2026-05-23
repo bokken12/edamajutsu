@@ -58,3 +58,18 @@ export const LOG_GRAPH_TEMPLATE = '"\\x1d" ++ ' + LOG_TEMPLATE;
 // practice).
 export const DIFF_SUMMARY_TEMPLATE = 'status ++ "\\x1e" ++ path ++ "\\n"';
 
+// Op-log fields, same shape as LOG_FIELDS. jj's op log operates on its own
+// type (`Operation`) with its own keywords — id, description, user, time.
+export const OP_LOG_FIELDS: ReadonlyArray<LogFieldSpec> = [
+  { name: 'id',                   expr: 'id',                                                              kind: 'raw' },
+  { name: 'description',          expr: 'description.escape_json()',                                       kind: 'json' },
+  { name: 'descriptionFirstLine', expr: 'description.first_line().escape_json()',                          kind: 'json' },
+  { name: 'user',                 expr: 'user.escape_json()',                                              kind: 'json' },
+  // `time.start()` renders as a human-readable timestamp like
+  // "2026-05-23 13:29:43.395 -07:00" — no control bytes, safe raw.
+  { name: 'time',                 expr: 'time.start()',                                                    kind: 'raw' }
+];
+
+export const OP_LOG_TEMPLATE =
+  OP_LOG_FIELDS.map((f) => f.expr).join(' ++ "\\x1e" ++ ') + ' ++ "\\n"';
+

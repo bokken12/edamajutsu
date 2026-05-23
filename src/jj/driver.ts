@@ -1,8 +1,20 @@
 import { spawn } from 'child_process';
 import { Change } from '../model/change';
 import { FileChange } from '../model/fileChange';
-import { GraphLine, parseDiffSummary, parseGraphLog, parseLogRecords } from './parse';
-import { DIFF_SUMMARY_TEMPLATE, LOG_GRAPH_TEMPLATE, LOG_TEMPLATE } from './templates';
+import { Operation } from '../model/operation';
+import {
+  GraphLine,
+  parseDiffSummary,
+  parseGraphLog,
+  parseLogRecords,
+  parseOpLogRecords
+} from './parse';
+import {
+  DIFF_SUMMARY_TEMPLATE,
+  LOG_GRAPH_TEMPLATE,
+  LOG_TEMPLATE,
+  OP_LOG_TEMPLATE
+} from './templates';
 
 export type JjResult = {
   readonly stdout: string;
@@ -102,6 +114,18 @@ export class JjDriver {
     }
     const result = await this.runChecked(args, opts);
     return parseDiffSummary(result.stdout);
+  }
+
+  async opLog(opts?: CommandOptions & { readonly limit?: number }): Promise<Operation[]> {
+    const args = ['op', 'log', '--no-graph', '-T', OP_LOG_TEMPLATE];
+    if (opts?.limit !== undefined) {
+      if (!Number.isInteger(opts.limit) || opts.limit < 0) {
+        throw new Error(`op log limit must be a non-negative integer, got ${opts.limit}`);
+      }
+      args.push('-n', String(opts.limit));
+    }
+    const result = await this.runChecked(args, opts);
+    return parseOpLogRecords(result.stdout);
   }
 
   // Returns the unified `diff --git` text for the given revset (i.e. the
