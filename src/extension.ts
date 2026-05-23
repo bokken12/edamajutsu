@@ -4,6 +4,7 @@ import { CommitDetailView, COMMIT_DETAIL_URI } from './views/commitDetail';
 import { EdamajutsuContentProvider } from './views/contentProvider';
 import { EdamajutsuFoldingProvider } from './views/folding';
 import { LogView, LOG_URI, openLog } from './views/log';
+import { OpLogView, OP_LOG_URI, openOpLog } from './views/opLog';
 import { StatusView, STATUS_URI, openStatus } from './views/status';
 
 export const EDAMAJUTSU_LANGUAGE = 'edamajutsu';
@@ -13,7 +14,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const statusView = new StatusView();
   const logView = new LogView();
   const commitView = new CommitDetailView();
-  const contentProvider = new EdamajutsuContentProvider(statusView, logView, commitView);
+  const opLogView = new OpLogView();
+  const contentProvider = new EdamajutsuContentProvider(
+    statusView,
+    logView,
+    commitView,
+    opLogView
+  );
   const foldingSelector: vscode.DocumentSelector = [
     { scheme: EDAMAJUTSU_SCHEME, language: EDAMAJUTSU_LANGUAGE, pattern: STATUS_URI.path },
     { scheme: EDAMAJUTSU_SCHEME, language: EDAMAJUTSU_LANGUAGE, pattern: COMMIT_DETAIL_URI.path }
@@ -27,8 +34,9 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('edamajutsu.openStatus', () => openStatus(statusView)),
     vscode.commands.registerCommand('edamajutsu.openLog', () => openLog(logView)),
+    vscode.commands.registerCommand('edamajutsu.openOpLog', () => openOpLog(opLogView)),
     vscode.commands.registerCommand('edamajutsu.refresh', () =>
-      onRefresh(statusView, logView, commitView)
+      onRefresh(statusView, logView, commitView, opLogView)
     ),
     vscode.commands.registerCommand('edamajutsu.visitAtPoint', () =>
       onVisitAtPoint(statusView, logView, commitView)
@@ -39,7 +47,8 @@ export function activate(context: vscode.ExtensionContext): void {
 async function onRefresh(
   status: StatusView,
   log: LogView,
-  commit: CommitDetailView
+  commit: CommitDetailView,
+  opLog: OpLogView
 ): Promise<void> {
   const activeUri = vscode.window.activeTextEditor?.document.uri;
   if (!activeUri) {
@@ -52,6 +61,9 @@ async function onRefresh(
     await log.refresh(true);
   } else if (uriString === COMMIT_DETAIL_URI.toString()) {
     await commit.refresh(true);
+  } else if (uriString === OP_LOG_URI.toString()) {
+    // Op log refresh is always passive — see OpLogView for why.
+    await opLog.refresh();
   }
 }
 

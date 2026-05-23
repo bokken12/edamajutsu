@@ -56,6 +56,10 @@
         "title": "Edamajutsu: Open Log"
       },
       {
+        "command": "edamajutsu.openOpLog",
+        "title": "Edamajutsu: Open Op Log"
+      },
+      {
         "command": "edamajutsu.refresh",
         "title": "Edamajutsu: Refresh"
       },
@@ -85,6 +89,11 @@
       {
         "command": "edamajutsu.openLog",
         "key": "l",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.openOpLog",
+        "key": "o",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       },
       {

@@ -1,6 +1,7 @@
 import { Change, changeId, commitId } from '../model/change';
 import { FileChange, FileChangeKind } from '../model/fileChange';
-import { FIELD_SEP, LIST_ITEM_SEP, LOG_FIELDS, RECORD_PREFIX } from './templates';
+import { Operation, operationId } from '../model/operation';
+import { FIELD_SEP, LIST_ITEM_SEP, LOG_FIELDS, OP_LOG_FIELDS, RECORD_PREFIX } from './templates';
 
 // One line of a graph-rendered `jj log`. Data rows carry a parsed Change plus
 // the leading graph glyphs jj drew; continuation rows are just graph art (or
@@ -132,6 +133,35 @@ function parseFileChangeKind(status: string, line: string): FileChangeKind {
     default:
       throw new JjParseError(`unknown file change status ${JSON.stringify(status)}`, line);
   }
+}
+
+export function parseOpLogRecords(stdout: string): Operation[] {
+  return splitTrailingNewline(stdout).map(parseOpLogRecord);
+}
+
+function parseOpLogRecord(line: string): Operation {
+  const fields = line.split(FIELD_SEP);
+  if (fields.length !== OP_LOG_FIELDS.length) {
+    throw new JjParseError(
+      `expected ${OP_LOG_FIELDS.length} fields in op-log record, got ${fields.length}`,
+      line
+    );
+  }
+  // Order must match OP_LOG_FIELDS in templates.ts.
+  const [idRaw, descriptionRaw, descriptionFirstLineRaw, userRaw, timeRaw] = fields as [
+    string,
+    string,
+    string,
+    string,
+    string
+  ];
+  return {
+    id: operationId(idRaw),
+    description: parseJsonString(descriptionRaw, line),
+    descriptionFirstLine: parseJsonString(descriptionFirstLineRaw, line),
+    user: parseJsonString(userRaw, line),
+    time: timeRaw
+  };
 }
 
 function parseBool(raw: string, line: string): boolean {

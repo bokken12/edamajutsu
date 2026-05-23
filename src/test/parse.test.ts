@@ -1,6 +1,12 @@
 import * as assert from 'assert';
 
-import { JjParseError, parseDiffSummary, parseGraphLog, parseLogRecords } from '../jj/parse';
+import {
+  JjParseError,
+  parseDiffSummary,
+  parseGraphLog,
+  parseLogRecords,
+  parseOpLogRecords
+} from '../jj/parse';
 import { FIELD_SEP, LIST_ITEM_SEP, RECORD_PREFIX } from '../jj/templates';
 
 type FieldOverrides = {
@@ -49,6 +55,9 @@ export function runParseTests(): void {
   testGraphLogSplitsDataAndContinuationRows();
   testGraphLogPreservesGraphPrefix();
   testGraphLogEmpty();
+  testOpLogParsesRecords();
+  testOpLogEmpty();
+  testOpLogRejectsWrongFieldCount();
 }
 
 function testParsesSingleRecord(): void {
@@ -200,4 +209,55 @@ function testGraphLogPreservesGraphPrefix(): void {
   assert.ok(parsed && parsed.kind === 'change');
   assert.strictEqual(parsed.graphPrefix, prefix);
   assert.strictEqual(parsed.change.changeId, 'feedbeef');
+}
+
+function buildOpRecord(o: {
+  id?: string;
+  description?: string;
+  descriptionFirstLine?: string;
+  user?: string;
+  time?: string;
+}): string {
+  const j = (s: string | undefined): string => JSON.stringify(s ?? '');
+  return [
+    o.id ?? '0123456789abcdef',
+    j(o.description),
+    j(o.descriptionFirstLine),
+    j(o.user ?? 'someone@host'),
+    o.time ?? '2026-05-23 13:29:43.395 -07:00'
+  ].join(FIELD_SEP) + '\n';
+}
+
+function testOpLogParsesRecords(): void {
+  const stdout =
+    buildOpRecord({
+      id: 'aaa111',
+      description: 'snapshot working copy',
+      descriptionFirstLine: 'snapshot working copy',
+      user: 'crouton@host',
+      time: '2026-05-23 13:29:43.395 -07:00'
+    }) +
+    buildOpRecord({
+      id: 'bbb222',
+      description: 'create bookmark feature pointing to commit abc\nsecond line',
+      descriptionFirstLine: 'create bookmark feature pointing to commit abc',
+      user: 'crouton@host'
+    });
+
+  const ops = parseOpLogRecords(stdout);
+  assert.strictEqual(ops.length, 2);
+  assert.strictEqual(ops[0]!.id, 'aaa111');
+  assert.strictEqual(ops[0]!.descriptionFirstLine, 'snapshot working copy');
+  assert.strictEqual(ops[0]!.user, 'crouton@host');
+  assert.strictEqual(ops[1]!.description, 'create bookmark feature pointing to commit abc\nsecond line');
+  assert.strictEqual(ops[1]!.descriptionFirstLine, 'create bookmark feature pointing to commit abc');
+}
+
+function testOpLogEmpty(): void {
+  assert.deepStrictEqual(parseOpLogRecords(''), []);
+}
+
+function testOpLogRejectsWrongFieldCount(): void {
+  const bad = ['only', 'three', 'fields'].join(FIELD_SEP) + '\n';
+  assert.throws(() => parseOpLogRecords(bad), JjParseError);
 }

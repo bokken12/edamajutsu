@@ -39,6 +39,7 @@ export async function runDriverTests(): Promise<void> {
   await testDiffSummaryReportsWorkingCopyChanges();
   await testLogGraphParsesGraphAndContinuationLines();
   await testDiffTextReturnsGitFormat();
+  await testOpLogReturnsRecentOperations();
 }
 
 async function testLogReturnsTypedRecordsAgainstRealRepo(): Promise<void> {
@@ -143,4 +144,24 @@ async function testDiffSummaryReportsWorkingCopyChanges(): Promise<void> {
   const byPath = new Map(files.map((f) => [f.path, f]));
   assert.strictEqual(byPath.get('b.txt')?.kind, 'added');
   assert.strictEqual(byPath.get('a.txt')?.kind, 'modified');
+}
+
+async function testOpLogReturnsRecentOperations(): Promise<void> {
+  const root = buildFixtureRepo();
+  const driver = new JjDriver({ repoRoot: root });
+  const ops = await driver.opLog({ limit: 10 });
+
+  // Building the fixture runs several jj commands, so we should see ops here.
+  assert.ok(ops.length > 0, `expected ops, got ${ops.length}`);
+  // Most recent ops should include the bookmark creation we performed last.
+  const descriptions = ops.map((o) => o.descriptionFirstLine);
+  assert.ok(
+    descriptions.some((d) => /create bookmark feature/.test(d)),
+    `expected a "create bookmark feature" op; got ${descriptions.join(' | ')}`
+  );
+  // Sanity: every op has an id and a non-empty time string.
+  for (const op of ops) {
+    assert.ok(op.id.length > 0);
+    assert.ok(op.time.length > 0);
+  }
 }
