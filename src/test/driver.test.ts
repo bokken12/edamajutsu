@@ -270,3 +270,34 @@ test('undo rolls back the most recent operation', async () => {
   // "second change" description.
   expect(afterUndo.descriptionFirstLine).toBe('second change');
 });
+
+test('newChange creates a child of @ and switches to it', async () => {
+  const root = buildFixtureRepo();
+  const driver = new JjDriver({ repoRoot: root });
+
+  const [oldHead] = await driver.log({ revset: '@', limit: 1 });
+  expect(oldHead!.descriptionFirstLine).toBe('second change');
+
+  await driver.newChange('a brand new change');
+
+  const [newHead] = await driver.log({ revset: '@', limit: 1 });
+  expect(newHead!.descriptionFirstLine).toBe('a brand new change');
+  // The previous @ should now be the parent.
+  expect([...newHead!.parents]).toEqual([oldHead!.changeId]);
+});
+
+test('newChange with no message creates an empty undescribed change', async () => {
+  const root = buildFixtureRepo();
+  const driver = new JjDriver({ repoRoot: root });
+  await driver.newChange();
+  const [head] = await driver.log({ revset: '@', limit: 1 });
+  expect(head!.descriptionFirstLine).toBe('');
+});
+
+test('describe overwrites the description of @', async () => {
+  const root = buildFixtureRepo();
+  const driver = new JjDriver({ repoRoot: root });
+  await driver.describe('rewritten description');
+  const [head] = await driver.log({ revset: '@', limit: 1 });
+  expect(head!.descriptionFirstLine).toBe('rewritten description');
+});

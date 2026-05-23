@@ -146,6 +146,21 @@ export class JjDriver {
     await this.runChecked(['undo'], { snapshot: true });
   }
 
+  // Creates a new empty change on top of @ and switches to it. Optional
+  // single-line description; omit for an undescribed change.
+  async newChange(message?: string): Promise<void> {
+    const args = ['new'];
+    if (message !== undefined && message !== '') {
+      args.push('-m', message);
+    }
+    await this.runChecked(args, { snapshot: true });
+  }
+
+  // Sets the description of @ to the given (possibly multi-line) string.
+  async describe(message: string): Promise<void> {
+    await this.runChecked(['describe', '-m', message], { snapshot: true });
+  }
+
   private async runChecked(
     args: ReadonlyArray<string>,
     opts?: CommandOptions

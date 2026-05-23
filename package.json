@@ -74,6 +74,14 @@
       {
         "command": "edamajutsu.undo",
         "title": "Edamajutsu: Undo Last Operation"
+      },
+      {
+        "command": "edamajutsu.new",
+        "title": "Edamajutsu: New Change"
+      },
+      {
+        "command": "edamajutsu.describe",
+        "title": "Edamajutsu: Describe Working Copy"
       }
     ],
     "menus": {
@@ -88,6 +96,14 @@
         },
         {
           "command": "edamajutsu.undo",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.new",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.describe",
           "when": "editorLangId == edamajutsu"
         }
       ]
@@ -116,6 +132,16 @@
       {
         "command": "edamajutsu.undo",
         "key": "u",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.new",
+        "key": "n",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.describe",
+        "key": "c",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]

@@ -50,12 +50,61 @@ export function activate(context: vscode.ExtensionContext): void {
       onVisitAtPoint(statusView, logView, commitView)
     ),
     vscode.commands.registerCommand('edamajutsu.undo', () =>
-      onUndo(statusView, logView, commitView, opLogView)
+      runMutation('jj undo', statusView, logView, commitView, opLogView, (d) => d.undo())
+    ),
+    vscode.commands.registerCommand('edamajutsu.new', () =>
+      onNew(statusView, logView, commitView, opLogView)
+    ),
+    vscode.commands.registerCommand('edamajutsu.describe', () =>
+      onDescribe(statusView, logView, commitView, opLogView)
     )
   );
 }
 
-async function onUndo(
+// Runs a mutation against the workspace's jj repo, refreshes all open views,
+// and surfaces any jj failure via a popup.
+async function runMutation(
+  label: string,
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView,
+  action: (driver: JjDriver) => Promise<void>
+): Promise<void> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
+  if (!repo) {
+    vscode.window.showWarningMessage('edamajutsu: no jj repository in the current workspace.');
+    return;
+  }
+  try {
+    await action(new JjDriver({ repoRoot: repo.root }));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`edamajutsu: ${label} failed — ${message}`);
+    return;
+  }
+  // The mutation already snapshotted; refreshes can stay passive.
+  await refreshOpenViews(status, log, commit, opLog);
+}
+
+async function onNew(
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView
+): Promise<void> {
+  const message = await vscode.window.showInputBox({
+    prompt: 'Description for the new change',
+    placeHolder: '(leave blank for an empty change)'
+  });
+  if (message === undefined) {
+    return; // cancelled
+  }
+  await runMutation('jj new', status, log, commit, opLog, (d) => d.newChange(message));
+}
+
+async function onDescribe(
   status: StatusView,
   log: LogView,
   commit: CommitDetailView,
@@ -67,15 +116,28 @@ async function onUndo(
     vscode.window.showWarningMessage('edamajutsu: no jj repository in the current workspace.');
     return;
   }
+
+  // Pre-fill with the current first line so it's an edit, not a rewrite.
+  // Multi-line descriptions get truncated to the first line through this
+  // entry point; users who want a multi-line edit can fall back to the
+  // terminal until we add a real editor flow.
+  let current = '';
   try {
-    await new JjDriver({ repoRoot: repo.root }).undo();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    vscode.window.showErrorMessage(`edamajutsu: jj undo failed — ${message}`);
+    const [head] = await new JjDriver({ repoRoot: repo.root }).log({ revset: '@', limit: 1 });
+    current = head?.descriptionFirstLine ?? '';
+  } catch {
+    // If the read fails, fall through with an empty default — describe will
+    // surface the real error.
+  }
+
+  const message = await vscode.window.showInputBox({
+    prompt: 'New description for @',
+    value: current
+  });
+  if (message === undefined) {
     return;
   }
-  // jj undo already snapshotted; downstream view refreshes can stay passive.
-  await refreshOpenViews(status, log, commit, opLog);
+  await runMutation('jj describe', status, log, commit, opLog, (d) => d.describe(message));
 }
 
 // Re-renders every edamajutsu view that's currently open, passively. Used
