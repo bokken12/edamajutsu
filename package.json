@@ -86,6 +86,10 @@
       {
         "command": "edamajutsu.abandon",
         "title": "Edamajutsu: Abandon Change at Point"
+      },
+      {
+        "command": "edamajutsu.edit",
+        "title": "Edamajutsu: Edit Change at Point"
       }
     ],
     "menus": {
@@ -112,6 +116,10 @@
         },
         {
           "command": "edamajutsu.abandon",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.edit",
           "when": "editorLangId == edamajutsu"
         }
       ]
@@ -155,6 +163,11 @@
       {
         "command": "edamajutsu.abandon",
         "key": "a",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.edit",
+        "key": "e",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]
