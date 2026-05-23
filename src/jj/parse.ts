@@ -1,7 +1,18 @@
 import { Change, changeId, commitId } from '../model/change';
 import { FileChange, FileChangeKind } from '../model/fileChange';
 import { Operation, operationId } from '../model/operation';
-import { FIELD_SEP, LIST_ITEM_SEP, LOG_FIELDS, OP_LOG_FIELDS, RECORD_PREFIX } from './templates';
+import {
+  FIELD_SEP,
+  FieldKind,
+  FieldSpec,
+  LIST_ITEM_SEP,
+  LOG_FIELDS,
+  LogRecord,
+  OP_LOG_FIELDS,
+  OpLogRecord,
+  RECORD_PREFIX,
+  RecordOf
+} from './templates';
 
 // One line of a graph-rendered `jj log`. Data rows carry a parsed Change plus
 // the leading graph glyphs jj drew; continuation rows are just graph art (or
@@ -29,41 +40,61 @@ function splitTrailingNewline(stdout: string): string[] {
   return trimmed.split('\n');
 }
 
-// The destructure order below must match the order of LOG_FIELDS in templates.ts.
-function parseLogRecord(line: string): Change {
-  const fields = line.split(FIELD_SEP);
-  if (fields.length !== LOG_FIELDS.length) {
+// Generic record parser: splits a line into fields, decodes each according
+// to its FieldSpec's `kind`, and assembles a record keyed by `name`. The
+// caller passes the SAME field array used to build the jj template, so the
+// parser's shape is guaranteed in lockstep with the template at compile time
+// (`RecordOf<typeof FIELDS>`).
+function parseRecord<F extends ReadonlyArray<FieldSpec>>(line: string, fields: F): RecordOf<F> {
+  const parts = line.split(FIELD_SEP);
+  if (parts.length !== fields.length) {
     throw new JjParseError(
-      `expected ${LOG_FIELDS.length} fields in log record, got ${fields.length}`,
+      `expected ${fields.length} fields in record, got ${parts.length}`,
       line
     );
   }
-  const [
-    changeIdRaw,
-    commitIdRaw,
-    descriptionRaw,
-    descriptionFirstLineRaw,
-    authorNameRaw,
-    authorEmailRaw,
-    parentsRaw,
-    bookmarksRaw,
-    conflictRaw,
-    emptyRaw,
-    workingCopyRaw
-  ] = fields as [string, string, string, string, string, string, string, string, string, string, string];
+  const result: Record<string, unknown> = {};
+  fields.forEach((spec, i) => {
+    result[spec.name] = decodeField(parts[i]!, spec.kind, line);
+  });
+  return result as RecordOf<F>;
+}
 
+function decodeField(raw: string, kind: FieldKind, line: string): string | string[] | boolean {
+  switch (kind) {
+    case 'raw':
+      return raw;
+    case 'json':
+      return parseJsonString(raw, line);
+    case 'list-raw':
+      return parseListRaw(raw);
+    case 'list-json':
+      return parseListRaw(raw).map((item) => parseJsonString(item, line));
+    case 'bool':
+      return parseBool(raw, line);
+  }
+}
+
+function parseLogRecord(line: string): Change {
+  return toChange(parseRecord(line, LOG_FIELDS));
+}
+
+// Bridge between the type-derived parsed shape and the user-facing Change,
+// which uses branded ChangeId / CommitId. This is the one place a renamed
+// field in LOG_FIELDS surfaces as a typecheck error.
+function toChange(raw: LogRecord): Change {
   return {
-    changeId: changeId(changeIdRaw),
-    commitId: commitId(commitIdRaw),
-    description: parseJsonString(descriptionRaw, line),
-    descriptionFirstLine: parseJsonString(descriptionFirstLineRaw, line),
-    authorName: parseJsonString(authorNameRaw, line),
-    authorEmail: authorEmailRaw,
-    parents: parseListRaw(parentsRaw).map(changeId),
-    bookmarks: parseListRaw(bookmarksRaw).map((item) => parseJsonString(item, line)),
-    isConflicted: parseBool(conflictRaw, line),
-    isEmpty: parseBool(emptyRaw, line),
-    isWorkingCopy: parseBool(workingCopyRaw, line)
+    changeId: changeId(raw.changeId),
+    commitId: commitId(raw.commitId),
+    description: raw.description,
+    descriptionFirstLine: raw.descriptionFirstLine,
+    authorName: raw.authorName,
+    authorEmail: raw.authorEmail,
+    parents: raw.parents.map(changeId),
+    bookmarks: raw.bookmarks,
+    isConflicted: raw.isConflicted,
+    isEmpty: raw.isEmpty,
+    isWorkingCopy: raw.isWorkingCopy
   };
 }
 
@@ -140,27 +171,16 @@ export function parseOpLogRecords(stdout: string): Operation[] {
 }
 
 function parseOpLogRecord(line: string): Operation {
-  const fields = line.split(FIELD_SEP);
-  if (fields.length !== OP_LOG_FIELDS.length) {
-    throw new JjParseError(
-      `expected ${OP_LOG_FIELDS.length} fields in op-log record, got ${fields.length}`,
-      line
-    );
-  }
-  // Order must match OP_LOG_FIELDS in templates.ts.
-  const [idRaw, descriptionRaw, descriptionFirstLineRaw, userRaw, timeRaw] = fields as [
-    string,
-    string,
-    string,
-    string,
-    string
-  ];
+  return toOperation(parseRecord(line, OP_LOG_FIELDS));
+}
+
+function toOperation(raw: OpLogRecord): Operation {
   return {
-    id: operationId(idRaw),
-    description: parseJsonString(descriptionRaw, line),
-    descriptionFirstLine: parseJsonString(descriptionFirstLineRaw, line),
-    user: parseJsonString(userRaw, line),
-    time: timeRaw
+    id: operationId(raw.id),
+    description: raw.description,
+    descriptionFirstLine: raw.descriptionFirstLine,
+    user: raw.user,
+    time: raw.time
   };
 }
 

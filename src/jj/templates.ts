@@ -12,20 +12,39 @@ export const LIST_ITEM_SEP = '\x1c';  // FS — between items in a list field
 // this byte are graph-only continuation rows (e.g. `│`, `~`).
 export const RECORD_PREFIX = '\x1d';  // GS
 
-// Log template fields, in order. `expr` is the jj-template expression that
-// produces the field's value; `kind` tells parse.ts how to decode it.
-//
-// Keep this array as the single source of truth for the log template — the
-// template string, the field count, and the parser all derive from it.
-export type LogFieldKind = 'raw' | 'json' | 'list-raw' | 'list-json' | 'bool';
+// `kind` controls how parse.ts decodes a field. `DecodedOf<K>` below is the
+// matching TS type, so the parsed record's shape is derived from this enum
+// rather than spelled out separately.
+export type FieldKind = 'raw' | 'json' | 'list-raw' | 'list-json' | 'bool';
 
-export type LogFieldSpec = {
+export type FieldSpec = {
   readonly name: string;
   readonly expr: string;
-  readonly kind: LogFieldKind;
+  readonly kind: FieldKind;
 };
 
-export const LOG_FIELDS: ReadonlyArray<LogFieldSpec> = [
+export type DecodedOf<K extends FieldKind> = K extends 'raw' | 'json'
+  ? string
+  : K extends 'list-raw' | 'list-json'
+    ? string[]
+    : K extends 'bool'
+      ? boolean
+      : never;
+
+// Maps an ordered array of FieldSpecs to the record shape they decode into.
+// Combined with `as const satisfies ReadonlyArray<FieldSpec>` on the spec
+// array, this turns the field-name-and-kind into a compile-time type. Rename
+// a field and every consumer of the renamed name becomes a typecheck error;
+// reorder fields and the parser (which dispatches by index using each spec's
+// own `kind`) keeps working.
+export type RecordOf<F extends ReadonlyArray<FieldSpec>> = {
+  readonly [P in F[number] as P['name']]: DecodedOf<P['kind']>;
+};
+
+// Single source of truth for the change log template. The template string,
+// the parser's field count, and the typed shape of a parsed record all
+// derive from this array.
+export const LOG_FIELDS = [
   { name: 'changeId',             expr: 'change_id',                                                       kind: 'raw' },
   { name: 'commitId',             expr: 'commit_id',                                                       kind: 'raw' },
   { name: 'description',          expr: 'description.escape_json()',                                       kind: 'json' },
@@ -36,14 +55,16 @@ export const LOG_FIELDS: ReadonlyArray<LogFieldSpec> = [
   // emitting it raw is safe in practice — but this is the only user-data
   // field that depends on jj's own validation rather than escape_json(). If
   // jj ever loosens email validation, this will start producing garbled
-  // records and parseLogRecord's field-count check will fail loudly.
+  // records and parseRecord's field-count check will fail loudly.
   { name: 'authorEmail',          expr: 'author.email()',                                                  kind: 'raw' },
   { name: 'parents',              expr: 'parents.map(|p| p.change_id()).join("\\x1c")',                    kind: 'list-raw' },
   { name: 'bookmarks',            expr: 'bookmarks.map(|b| b.name().escape_json()).join("\\x1c")',         kind: 'list-json' },
   { name: 'isConflicted',         expr: 'if(conflict, "1", "0")',                                          kind: 'bool' },
   { name: 'isEmpty',              expr: 'if(empty, "1", "0")',                                             kind: 'bool' },
   { name: 'isWorkingCopy',        expr: 'if(current_working_copy, "1", "0")',                              kind: 'bool' }
-];
+] as const satisfies ReadonlyArray<FieldSpec>;
+
+export type LogRecord = RecordOf<typeof LOG_FIELDS>;
 
 export const LOG_TEMPLATE =
   LOG_FIELDS.map((f) => f.expr).join(' ++ "\\x1e" ++ ') + ' ++ "\\n"';
@@ -60,7 +81,7 @@ export const DIFF_SUMMARY_TEMPLATE = 'status ++ "\\x1e" ++ path ++ "\\n"';
 
 // Op-log fields, same shape as LOG_FIELDS. jj's op log operates on its own
 // type (`Operation`) with its own keywords — id, description, user, time.
-export const OP_LOG_FIELDS: ReadonlyArray<LogFieldSpec> = [
+export const OP_LOG_FIELDS = [
   { name: 'id',                   expr: 'id',                                                              kind: 'raw' },
   { name: 'description',          expr: 'description.escape_json()',                                       kind: 'json' },
   { name: 'descriptionFirstLine', expr: 'description.first_line().escape_json()',                          kind: 'json' },
@@ -68,8 +89,9 @@ export const OP_LOG_FIELDS: ReadonlyArray<LogFieldSpec> = [
   // `time.start()` renders as a human-readable timestamp like
   // "2026-05-23 13:29:43.395 -07:00" — no control bytes, safe raw.
   { name: 'time',                 expr: 'time.start()',                                                    kind: 'raw' }
-];
+] as const satisfies ReadonlyArray<FieldSpec>;
+
+export type OpLogRecord = RecordOf<typeof OP_LOG_FIELDS>;
 
 export const OP_LOG_TEMPLATE =
   OP_LOG_FIELDS.map((f) => f.expr).join(' ++ "\\x1e" ++ ') + ' ++ "\\n"';
-
