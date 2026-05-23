@@ -37,6 +37,7 @@ export async function runDriverTests(): Promise<void> {
   await testLogSurvivesControlBytesInDescription();
   await testLogRejectsInvalidLimit();
   await testDiffSummaryReportsWorkingCopyChanges();
+  await testLogGraphParsesGraphAndContinuationLines();
 }
 
 async function testLogReturnsTypedRecordsAgainstRealRepo(): Promise<void> {
@@ -96,6 +97,27 @@ async function testLogRejectsInvalidLimit(): Promise<void> {
   const driver = new JjDriver({ repoRoot: root });
   await assert.rejects(() => driver.log({ limit: -1 }), /non-negative integer/);
   await assert.rejects(() => driver.log({ limit: 1.5 }), /non-negative integer/);
+}
+
+async function testLogGraphParsesGraphAndContinuationLines(): Promise<void> {
+  const root = buildFixtureRepo();
+  const driver = new JjDriver({ repoRoot: root });
+  const lines = await driver.logGraph({ revset: 'all()' });
+
+  const changes = lines.flatMap((l) => (l.kind === 'change' ? [l.change] : []));
+  assert.ok(changes.length >= 3, `expected >=3 changes, got ${changes.length}`);
+
+  const summaries = changes.map((c) => c.descriptionFirstLine);
+  assert.ok(summaries.includes('first change'));
+  assert.ok(summaries.includes('second change'));
+
+  // Every data row should have a non-empty graph prefix (the leading glyph)
+  // — even at the root, jj draws something.
+  for (const line of lines) {
+    if (line.kind === 'change') {
+      assert.ok(line.graphPrefix.length > 0, `expected non-empty graph prefix on ${line.change.changeId}`);
+    }
+  }
 }
 
 async function testDiffSummaryReportsWorkingCopyChanges(): Promise<void> {

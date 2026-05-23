@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 
-import { JjParseError, parseDiffSummary, parseLogRecords } from '../jj/parse';
-import { FIELD_SEP, LIST_ITEM_SEP } from '../jj/templates';
+import { JjParseError, parseDiffSummary, parseGraphLog, parseLogRecords } from '../jj/parse';
+import { FIELD_SEP, LIST_ITEM_SEP, RECORD_PREFIX } from '../jj/templates';
 
 type FieldOverrides = {
   changeId?: string;
@@ -44,6 +44,9 @@ export function runParseTests(): void {
   testDiffSummaryParsesEachKind();
   testDiffSummaryEmpty();
   testDiffSummaryRejectsUnknownStatus();
+  testGraphLogSplitsDataAndContinuationRows();
+  testGraphLogPreservesGraphPrefix();
+  testGraphLogEmpty();
 }
 
 function testParsesSingleRecord(): void {
@@ -146,4 +149,45 @@ function testDiffSummaryEmpty(): void {
 
 function testDiffSummaryRejectsUnknownStatus(): void {
   assert.throws(() => parseDiffSummary(`weirdstatus${FIELD_SEP}a.txt\n`), JjParseError);
+}
+
+function testGraphLogSplitsDataAndContinuationRows(): void {
+  const dataLine = (graphPrefix: string, change: string): string =>
+    graphPrefix + RECORD_PREFIX + buildRecord({ changeId: change, descriptionFirstLine: `desc-${change}` });
+  const stdout =
+    dataLine('@  ', 'aaa11111') +
+    '│\n' +
+    dataLine('○  ', 'bbb22222') +
+    '~\n';
+
+  const lines = parseGraphLog(stdout);
+  assert.strictEqual(lines.length, 4);
+  assert.strictEqual(lines[0]?.kind, 'change');
+  assert.strictEqual(lines[1]?.kind, 'graphOnly');
+  assert.strictEqual(lines[2]?.kind, 'change');
+  assert.strictEqual(lines[3]?.kind, 'graphOnly');
+  if (lines[0]?.kind === 'change') {
+    assert.strictEqual(lines[0].graphPrefix, '@  ');
+    assert.strictEqual(lines[0].change.changeId, 'aaa11111');
+  }
+  if (lines[1]?.kind === 'graphOnly') {
+    assert.strictEqual(lines[1].text, '│');
+  }
+  if (lines[3]?.kind === 'graphOnly') {
+    assert.strictEqual(lines[3].text, '~');
+  }
+}
+
+function testGraphLogEmpty(): void {
+  assert.deepStrictEqual(parseGraphLog(''), []);
+}
+
+function testGraphLogPreservesGraphPrefix(): void {
+  // Realistic prefix: leading spaces, box-drawing chars, more spaces.
+  const prefix = '│ ○  ';
+  const line = prefix + RECORD_PREFIX + buildRecord({ changeId: 'feedbeef' });
+  const [parsed] = parseGraphLog(line);
+  assert.ok(parsed && parsed.kind === 'change');
+  assert.strictEqual(parsed.graphPrefix, prefix);
+  assert.strictEqual(parsed.change.changeId, 'feedbeef');
 }

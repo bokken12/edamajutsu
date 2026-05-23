@@ -1,6 +1,13 @@
 import { Change, changeId, commitId } from '../model/change';
 import { FileChange, FileChangeKind } from '../model/fileChange';
-import { FIELD_SEP, LIST_ITEM_SEP, LOG_FIELDS } from './templates';
+import { FIELD_SEP, LIST_ITEM_SEP, LOG_FIELDS, RECORD_PREFIX } from './templates';
+
+// One line of a graph-rendered `jj log`. Data rows carry a parsed Change plus
+// the leading graph glyphs jj drew; continuation rows are just graph art (or
+// the `~` elision marker) and have no associated change.
+export type GraphLine =
+  | { readonly kind: 'change'; readonly graphPrefix: string; readonly change: Change }
+  | { readonly kind: 'graphOnly'; readonly text: string };
 
 export class JjParseError extends Error {
   constructor(message: string, readonly raw: string) {
@@ -78,6 +85,20 @@ function parseJsonString(raw: string, line: string): string {
     throw new JjParseError(`expected JSON string, got ${typeof parsed}`, line);
   }
   return parsed;
+}
+
+export function parseGraphLog(stdout: string): GraphLine[] {
+  return splitTrailingNewline(stdout).map(parseGraphLogLine);
+}
+
+function parseGraphLogLine(line: string): GraphLine {
+  const sentinelIdx = line.indexOf(RECORD_PREFIX);
+  if (sentinelIdx < 0) {
+    return { kind: 'graphOnly', text: line };
+  }
+  const graphPrefix = line.slice(0, sentinelIdx);
+  const recordLine = line.slice(sentinelIdx + 1);
+  return { kind: 'change', graphPrefix, change: parseLogRecord(recordLine) };
 }
 
 export function parseDiffSummary(stdout: string): FileChange[] {

@@ -52,6 +52,10 @@
         "title": "Edamajutsu: Open Status"
       },
       {
+        "command": "edamajutsu.openLog",
+        "title": "Edamajutsu: Open Log"
+      },
+      {
         "command": "edamajutsu.refresh",
         "title": "Edamajutsu: Refresh"
       }
@@ -69,6 +73,11 @@
         "command": "edamajutsu.refresh",
         "key": "g",
         "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.openLog",
+        "key": "l",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]
   },
@@ -78,7 +87,8 @@
     "watch": "webpack --mode development --watch",
     "compile": "tsc -p ./",
     "test": "tsc -p ./ && node ./out/test/run.js",
-    "demo:log": "tsc -p ./ && node ./out/demo/log.js"
+    "demo:log": "tsc -p ./ && node ./out/demo/log.js",
+    "demo:log:graph": "tsc -p ./ && node ./out/demo/logGraph.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
