@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+import { JjDriver } from './jj/driver';
+import { findJjRepo } from './jj/repo';
 import { DecorationManager } from './render/decorationManager';
 import { createDecorationTypes } from './render/decorations';
 import { CommitDetailView, COMMIT_DETAIL_URI } from './views/commitDetail';
@@ -46,8 +48,61 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('edamajutsu.visitAtPoint', () =>
       onVisitAtPoint(statusView, logView, commitView)
+    ),
+    vscode.commands.registerCommand('edamajutsu.undo', () =>
+      onUndo(statusView, logView, commitView, opLogView)
     )
   );
+}
+
+async function onUndo(
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView
+): Promise<void> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
+  if (!repo) {
+    vscode.window.showWarningMessage('edamajutsu: no jj repository in the current workspace.');
+    return;
+  }
+  try {
+    await new JjDriver({ repoRoot: repo.root }).undo();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`edamajutsu: jj undo failed — ${message}`);
+    return;
+  }
+  // jj undo already snapshotted; downstream view refreshes can stay passive.
+  await refreshOpenViews(status, log, commit, opLog);
+}
+
+// Re-renders every edamajutsu view that's currently open, passively. Used
+// after a mutation to bring all views in sync with the new repo state.
+async function refreshOpenViews(
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView
+): Promise<void> {
+  const openUris = new Set(
+    vscode.window.visibleTextEditors.map((e) => e.document.uri.toString())
+  );
+  const tasks: Promise<void>[] = [];
+  if (openUris.has(STATUS_URI.toString())) {
+    tasks.push(withPreservedCursor(STATUS_URI, () => status.refresh(false)));
+  }
+  if (openUris.has(LOG_URI.toString())) {
+    tasks.push(withPreservedCursor(LOG_URI, () => log.refresh(false)));
+  }
+  if (openUris.has(COMMIT_DETAIL_URI.toString())) {
+    tasks.push(withPreservedCursor(COMMIT_DETAIL_URI, () => commit.refresh(false)));
+  }
+  if (openUris.has(OP_LOG_URI.toString())) {
+    tasks.push(withPreservedCursor(OP_LOG_URI, () => opLog.refresh()));
+  }
+  await Promise.all(tasks);
 }
 
 async function onRefresh(

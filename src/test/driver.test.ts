@@ -253,3 +253,20 @@ test('opLog returns the meaningful operations from the fixture', async () => {
     ]
   `);
 });
+
+test('undo rolls back the most recent operation', async () => {
+  const root = buildFixtureRepo();
+  const driver = new JjDriver({ repoRoot: root });
+
+  // Make the rollback visible: rename the working copy's description.
+  jjSync(root, ['describe', '-m', 'about to be undone']);
+  const beforeUndo = (await driver.log({ revset: '@', limit: 1 }))[0]!;
+  expect(beforeUndo.descriptionFirstLine).toBe('about to be undone');
+
+  await driver.undo();
+
+  const afterUndo = (await driver.log({ revset: '@', limit: 1 }))[0]!;
+  // The most recent describe is gone; @ should be back to the fixture's
+  // "second change" description.
+  expect(afterUndo.descriptionFirstLine).toBe('second change');
+});

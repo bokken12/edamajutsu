@@ -70,6 +70,10 @@
       {
         "command": "edamajutsu.visitAtPoint",
         "title": "Edamajutsu: Visit at Point"
+      },
+      {
+        "command": "edamajutsu.undo",
+        "title": "Edamajutsu: Undo Last Operation"
       }
     ],
     "menus": {
@@ -80,6 +84,10 @@
         },
         {
           "command": "edamajutsu.visitAtPoint",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.undo",
           "when": "editorLangId == edamajutsu"
         }
       ]
@@ -103,6 +111,11 @@
       {
         "command": "edamajutsu.visitAtPoint",
         "key": "enter",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.undo",
+        "key": "u",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]

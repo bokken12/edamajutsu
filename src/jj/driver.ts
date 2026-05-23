@@ -138,6 +138,14 @@ export class JjDriver {
     return result.stdout;
   }
 
+  // Rolls back the most recent operation. Mutating, so it always snapshots
+  // the working copy first (we cannot pass --ignore-working-copy or jj
+  // would refuse). Subsequent view refreshes after an undo can stay passive
+  // because jj already snapshotted.
+  async undo(): Promise<void> {
+    await this.runChecked(['undo'], { snapshot: true });
+  }
+
   private async runChecked(
     args: ReadonlyArray<string>,
     opts?: CommandOptions
