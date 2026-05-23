@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { JjDriver } from '../jj/driver';
 import { findJjRepo, JjRepo } from '../jj/repo';
 import { Operation } from '../model/operation';
+import { DecorationRanges } from '../render/decoratedText';
 
 export const OP_LOG_URI = vscode.Uri.from({
   scheme: 'edamajutsu',
@@ -26,9 +27,14 @@ export class OpLogView implements vscode.TextDocumentContentProvider {
   private refreshToken = 0;
   private readonly onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.onDidChangeEmitter.event;
+  readonly uri = OP_LOG_URI;
 
   provideTextDocumentContent(_uri: vscode.Uri): string {
     return this.rendered.text;
+  }
+
+  getDecorations(): DecorationRanges {
+    return new Map();
   }
 
   async refresh(): Promise<void> {
