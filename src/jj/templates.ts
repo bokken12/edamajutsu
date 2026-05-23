@@ -25,7 +25,6 @@ export type LogFieldSpec = {
 export const LOG_FIELDS: ReadonlyArray<LogFieldSpec> = [
   { name: 'changeId',             expr: 'change_id',                                                       kind: 'raw' },
   { name: 'commitId',             expr: 'commit_id',                                                       kind: 'raw' },
-  { name: 'description',          expr: 'description.escape_json()',                                       kind: 'json' },
   { name: 'descriptionFirstLine', expr: 'description.first_line().escape_json()',                          kind: 'json' },
   { name: 'authorName',           expr: 'author.name().escape_json()',                                     kind: 'json' },
   // author.email() returns jj's structured `Email` type which lacks
@@ -41,3 +40,10 @@ export const LOG_FIELDS: ReadonlyArray<LogFieldSpec> = [
 
 export const LOG_TEMPLATE =
   LOG_FIELDS.map((f) => f.expr).join(' ++ "\\x1e" ++ ') + ' ++ "\\n"';
+
+// Diff template for `jj diff -T`. Emits `<status>\x1e<path>\n` per changed
+// file. `status` is one of "added" | "modified" | "removed" | "renamed" |
+// "copied"; paths are repo-relative POSIX strings (no control bytes in
+// practice).
+export const DIFF_SUMMARY_TEMPLATE = 'status ++ "\\x1e" ++ path ++ "\\n"';
+

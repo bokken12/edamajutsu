@@ -1,4 +1,5 @@
 import { Change, changeId, commitId } from '../model/change';
+import { FileChange, FileChangeKind } from '../model/fileChange';
 import { FIELD_SEP, LIST_ITEM_SEP, LOG_FIELDS } from './templates';
 
 export class JjParseError extends Error {
@@ -32,7 +33,6 @@ function parseLogRecord(line: string): Change {
   const [
     changeIdRaw,
     commitIdRaw,
-    descriptionRaw,
     descriptionFirstLineRaw,
     authorNameRaw,
     authorEmailRaw,
@@ -41,12 +41,11 @@ function parseLogRecord(line: string): Change {
     conflictRaw,
     emptyRaw,
     workingCopyRaw
-  ] = fields as [string, string, string, string, string, string, string, string, string, string, string];
+  ] = fields as [string, string, string, string, string, string, string, string, string, string];
 
   return {
     changeId: changeId(changeIdRaw),
     commitId: commitId(commitIdRaw),
-    description: parseJsonString(descriptionRaw, line),
     descriptionFirstLine: parseJsonString(descriptionFirstLineRaw, line),
     authorName: parseJsonString(authorNameRaw, line),
     authorEmail: authorEmailRaw,
@@ -79,6 +78,37 @@ function parseJsonString(raw: string, line: string): string {
     throw new JjParseError(`expected JSON string, got ${typeof parsed}`, line);
   }
   return parsed;
+}
+
+export function parseDiffSummary(stdout: string): FileChange[] {
+  return splitTrailingNewline(stdout).map(parseDiffSummaryLine);
+}
+
+function parseDiffSummaryLine(line: string): FileChange {
+  const sep = line.indexOf(FIELD_SEP);
+  if (sep < 0) {
+    throw new JjParseError(`missing field separator in diff-summary line`, line);
+  }
+  const status = line.slice(0, sep);
+  const path = line.slice(sep + 1);
+  return { kind: parseFileChangeKind(status, line), path };
+}
+
+function parseFileChangeKind(status: string, line: string): FileChangeKind {
+  switch (status) {
+    case 'added':
+      return 'added';
+    case 'modified':
+      return 'modified';
+    case 'removed':
+      return 'deleted';
+    case 'renamed':
+      return 'renamed';
+    case 'copied':
+      return 'copied';
+    default:
+      throw new JjParseError(`unknown file change status ${JSON.stringify(status)}`, line);
+  }
 }
 
 function parseBool(raw: string, line: string): boolean {

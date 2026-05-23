@@ -26,10 +26,49 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "edamajutsu",
+        "aliases": ["Edamajutsu"],
+        "extensions": [".edamajutsu"],
+        "configuration": "./languages/edamajutsu.language-configuration.json"
+      }
+    ],
+    "configurationDefaults": {
+      "[edamajutsu]": {
+        "editor.lineNumbers": "off",
+        "editor.minimap.enabled": false,
+        "editor.renderWhitespace": "none",
+        "editor.wordWrap": "off",
+        "editor.glyphMargin": false,
+        "editor.folding": true,
+        "editor.foldingStrategy": "auto",
+        "editor.showFoldingControls": "always"
+      }
+    },
     "commands": [
       {
         "command": "edamajutsu.openStatus",
         "title": "Edamajutsu: Open Status"
+      },
+      {
+        "command": "edamajutsu.refresh",
+        "title": "Edamajutsu: Refresh"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "edamajutsu.refresh",
+          "when": "editorLangId == edamajutsu"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "edamajutsu.refresh",
+        "key": "g",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]
   },
