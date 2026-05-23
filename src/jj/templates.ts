@@ -8,6 +8,9 @@
 // flags, lists of hex ids) are emitted raw.
 export const FIELD_SEP = '\x1e';      // RS — between fields in a record
 export const LIST_ITEM_SEP = '\x1c';  // FS — between items in a list field
+// Marks the start of our payload on a graph-rendered log line. Lines without
+// this byte are graph-only continuation rows (e.g. `│`, `~`).
+export const RECORD_PREFIX = '\x1d';  // GS
 
 // Log template fields, in order. `expr` is the jj-template expression that
 // produces the field's value; `kind` tells parse.ts how to decode it.
@@ -29,7 +32,10 @@ export const LOG_FIELDS: ReadonlyArray<LogFieldSpec> = [
   { name: 'authorName',           expr: 'author.name().escape_json()',                                     kind: 'json' },
   // author.email() returns jj's structured `Email` type which lacks
   // escape_json(). Real-world email syntax doesn't permit control bytes, so
-  // emitting it raw is safe in practice.
+  // emitting it raw is safe in practice — but this is the only user-data
+  // field that depends on jj's own validation rather than escape_json(). If
+  // jj ever loosens email validation, this will start producing garbled
+  // records and parseLogRecord's field-count check will fail loudly.
   { name: 'authorEmail',          expr: 'author.email()',                                                  kind: 'raw' },
   { name: 'parents',              expr: 'parents.map(|p| p.change_id()).join("\\x1c")',                    kind: 'list-raw' },
   { name: 'bookmarks',            expr: 'bookmarks.map(|b| b.name().escape_json()).join("\\x1c")',         kind: 'list-json' },
@@ -40,6 +46,10 @@ export const LOG_FIELDS: ReadonlyArray<LogFieldSpec> = [
 
 export const LOG_TEMPLATE =
   LOG_FIELDS.map((f) => f.expr).join(' ++ "\\x1e" ++ ') + ' ++ "\\n"';
+
+// Graph variant: same fields, prefixed with the record marker so we can
+// distinguish data rows from jj's graph-only continuation rows.
+export const LOG_GRAPH_TEMPLATE = '"\\x1d" ++ ' + LOG_TEMPLATE;
 
 // Diff template for `jj diff -T`. Emits `<status>\x1e<path>\n` per changed
 // file. `status` is one of "added" | "modified" | "removed" | "renamed" |

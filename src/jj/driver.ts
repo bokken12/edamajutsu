@@ -1,8 +1,8 @@
 import { spawn } from 'child_process';
 import { Change } from '../model/change';
 import { FileChange } from '../model/fileChange';
-import { parseDiffSummary, parseLogRecords } from './parse';
-import { DIFF_SUMMARY_TEMPLATE, LOG_TEMPLATE } from './templates';
+import { GraphLine, parseDiffSummary, parseGraphLog, parseLogRecords } from './parse';
+import { DIFF_SUMMARY_TEMPLATE, LOG_GRAPH_TEMPLATE, LOG_TEMPLATE } from './templates';
 
 export type JjResult = {
   readonly stdout: string;
@@ -80,17 +80,19 @@ export class JjDriver {
 
   async log(opts?: LogOptions): Promise<Change[]> {
     const args = ['log', '--no-graph', '-T', LOG_TEMPLATE];
-    if (opts?.revset !== undefined) {
-      args.push('-r', opts.revset);
-    }
-    if (opts?.limit !== undefined) {
-      if (!Number.isInteger(opts.limit) || opts.limit < 0) {
-        throw new Error(`log limit must be a non-negative integer, got ${opts.limit}`);
-      }
-      args.push('-n', String(opts.limit));
-    }
+    appendLogOpts(args, opts);
     const result = await this.runChecked(args, opts);
     return parseLogRecords(result.stdout);
+  }
+
+  // Graph-rendered `jj log`. Lines come back as either parsed `change`
+  // records (with the leading graph glyphs jj drew) or `graphOnly`
+  // continuation rows that we re-emit verbatim for display.
+  async logGraph(opts?: LogOptions): Promise<GraphLine[]> {
+    const args = ['log', '-T', LOG_GRAPH_TEMPLATE];
+    appendLogOpts(args, opts);
+    const result = await this.runChecked(args, opts);
+    return parseGraphLog(result.stdout);
   }
 
   async diffSummary(opts?: DiffSummaryOptions): Promise<FileChange[]> {
@@ -111,6 +113,18 @@ export class JjDriver {
       throw new JjCommandError(args, result);
     }
     return result;
+  }
+}
+
+function appendLogOpts(args: string[], opts: LogOptions | undefined): void {
+  if (opts?.revset !== undefined) {
+    args.push('-r', opts.revset);
+  }
+  if (opts?.limit !== undefined) {
+    if (!Number.isInteger(opts.limit) || opts.limit < 0) {
+      throw new Error(`log limit must be a non-negative integer, got ${opts.limit}`);
+    }
+    args.push('-n', String(opts.limit));
   }
 }
 
