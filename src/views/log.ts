@@ -4,6 +4,7 @@ import { JjDriver } from '../jj/driver';
 import { GraphLine } from '../jj/parse';
 import { findJjRepo, JjRepo } from '../jj/repo';
 import { Change } from '../model/change';
+import { DecorationRanges } from '../render/decoratedText';
 import { formatChangeOneLine } from '../render/formatChange';
 
 export const LOG_URI = vscode.Uri.from({ scheme: 'edamajutsu', path: 'log.edamajutsu' });
@@ -25,9 +26,16 @@ export class LogView implements vscode.TextDocumentContentProvider {
   private refreshToken = 0;
   private readonly onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.onDidChangeEmitter.event;
+  readonly uri = LOG_URI;
 
   provideTextDocumentContent(_uri: vscode.Uri): string {
     return this.rendered.text;
+  }
+
+  // Decorations land in a follow-up PR; expose the no-op stub now so the
+  // DecorationManager has a uniform interface to talk to.
+  getDecorations(): DecorationRanges {
+    return new Map();
   }
 
   changeAtLine(line: number): Change | undefined {

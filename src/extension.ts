@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+import { DecorationManager } from './render/decorationManager';
+import { createDecorationTypes } from './render/decorations';
 import { CommitDetailView, COMMIT_DETAIL_URI } from './views/commitDetail';
 import { EdamajutsuContentProvider } from './views/contentProvider';
 import { EdamajutsuFoldingProvider } from './views/folding';
@@ -25,6 +27,10 @@ export function activate(context: vscode.ExtensionContext): void {
     { scheme: EDAMAJUTSU_SCHEME, language: EDAMAJUTSU_LANGUAGE, pattern: STATUS_URI.path },
     { scheme: EDAMAJUTSU_SCHEME, language: EDAMAJUTSU_LANGUAGE, pattern: COMMIT_DETAIL_URI.path }
   ];
+
+  const decorationTypes = createDecorationTypes();
+  context.subscriptions.push(...Object.values(decorationTypes));
+  new DecorationManager(decorationTypes, [statusView, logView, commitView, opLogView]).register(context);
 
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(EDAMAJUTSU_SCHEME, contentProvider),

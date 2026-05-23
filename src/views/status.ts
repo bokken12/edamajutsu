@@ -3,7 +3,9 @@ import * as vscode from 'vscode';
 import { JjDriver } from '../jj/driver';
 import { JjRepo, findJjRepo } from '../jj/repo';
 import { Change } from '../model/change';
-import { FileChange } from '../model/fileChange';
+import { FileChange, FileChangeKind } from '../model/fileChange';
+import { DecoratedDocBuilder, DecoratedLine, DecorationRanges, LineBuilder } from '../render/decoratedText';
+import { DecorationKey } from '../render/decorations';
 import { fileKindGlyph } from '../render/fileKind';
 
 export const STATUS_URI = vscode.Uri.from({ scheme: 'edamajutsu', path: 'status.edamajutsu' });
@@ -21,18 +23,22 @@ type Rendered = {
   // to drill into the commit detail). Undefined for header / blank / non-
   // change rows.
   readonly lineToChange: ReadonlyArray<Change | undefined>;
+  readonly decorations: DecorationRanges;
 };
 
-const INITIAL: Rendered = { text: 'Loading...', foldingRanges: [], lineToChange: [] };
+const INITIAL: Rendered = {
+  text: 'Loading...',
+  foldingRanges: [],
+  lineToChange: [],
+  decorations: new Map()
+};
 
-// Owns the rendered text and folding ranges for the status view. The
-// TextDocumentContentProvider reads the cache; `refresh` is the only thing
-// that talks to jj.
 export class StatusView implements vscode.TextDocumentContentProvider {
   private rendered: Rendered = INITIAL;
   private refreshToken = 0;
   private readonly onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.onDidChangeEmitter.event;
+  readonly uri = STATUS_URI;
 
   provideTextDocumentContent(_uri: vscode.Uri): string {
     return this.rendered.text;
@@ -42,6 +48,10 @@ export class StatusView implements vscode.TextDocumentContentProvider {
     return this.rendered.foldingRanges;
   }
 
+  getDecorations(): DecorationRanges {
+    return this.rendered.decorations;
+  }
+
   changeAtLine(line: number): Change | undefined {
     return this.rendered.lineToChange[line];
   }
@@ -49,7 +59,6 @@ export class StatusView implements vscode.TextDocumentContentProvider {
   async refresh(snapshot: boolean): Promise<void> {
     const token = ++this.refreshToken;
     const next = await this.produce(snapshot);
-    // A newer refresh started while ours was in flight — drop our result.
     if (token !== this.refreshToken) {
       return;
     }
@@ -61,13 +70,13 @@ export class StatusView implements vscode.TextDocumentContentProvider {
     const folder = vscode.workspace.workspaceFolders?.[0];
     const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
     if (!repo) {
-      return emptyRendered(renderNoRepo());
+      return plainRendered(renderNoRepo());
     }
     try {
       const data = await fetchStatus(new JjDriver({ repoRoot: repo.root }), snapshot);
       return renderStatus(repo, data);
     } catch (err) {
-      return emptyRendered(renderError(repo, err));
+      return plainRendered(renderError(repo, err));
     }
   }
 }
@@ -79,8 +88,6 @@ export async function openStatus(view: StatusView): Promise<void> {
 }
 
 async function fetchStatus(driver: JjDriver, snapshot: boolean): Promise<StatusData> {
-  // Only the first call passes `snapshot: true`. After it runs, jj has nothing
-  // new to snapshot, so the follow-ups can stay passive.
   const [workingCopy] = await driver.log({ revset: '@', limit: 1, snapshot });
   if (!workingCopy) {
     throw new Error('jj log @ returned no records');
@@ -90,9 +97,14 @@ async function fetchStatus(driver: JjDriver, snapshot: boolean): Promise<StatusD
   return { workingCopy, parent, files };
 }
 
-function emptyRendered(text: string): Rendered {
+function plainRendered(text: string): Rendered {
   const lines = text.split('\n');
-  return { text, foldingRanges: [], lineToChange: lines.map(() => undefined) };
+  return {
+    text,
+    foldingRanges: [],
+    lineToChange: lines.map(() => undefined),
+    decorations: new Map()
+  };
 }
 
 function renderNoRepo(): string {
@@ -122,15 +134,12 @@ function renderError(repo: JjRepo, err: unknown): string {
   ].join('\n');
 }
 
-// Renderer that builds the status text, folding ranges, and per-line change
-// map in lockstep: each section call records both the [start, end] line range
-// it produced and the Change those lines refer to.
 function renderStatus(repo: JjRepo, data: StatusData): Rendered {
-  const out = new SectionBuilder();
-  out.push(`edamajutsu: status`);
-  out.push('');
-  out.push(`Repository: ${repo.root}`);
-  out.push('');
+  const out = new StatusBuilder();
+  out.plain('edamajutsu: status');
+  out.plain('');
+  out.plain(`Repository: ${repo.root}`);
+  out.plain('');
 
   out.section(data.workingCopy, () => renderChangeSection('Working copy:', data.workingCopy));
   if (data.parent && !isRootChange(data.parent)) {
@@ -144,62 +153,102 @@ function renderStatus(repo: JjRepo, data: StatusData): Rendered {
   return out.build();
 }
 
-class SectionBuilder {
-  private readonly lines: string[] = [];
-  private readonly ranges: vscode.FoldingRange[] = [];
+// Wraps DecoratedDocBuilder with the status-specific bookkeeping: folding
+// ranges per section and the line-to-change map for `RET` navigation.
+class StatusBuilder {
+  private readonly doc = new DecoratedDocBuilder();
+  private readonly foldingRanges: vscode.FoldingRange[] = [];
   private readonly lineToChange: Array<Change | undefined> = [];
 
-  push(line: string): void {
-    this.lines.push(line);
+  plain(text: string): void {
+    this.doc.pushPlain(text);
     this.lineToChange.push(undefined);
   }
 
-  section(change: Change, produce: () => string[]): void {
-    const start = this.lines.length;
+  section(change: Change, produce: () => DecoratedLine[]): void {
+    const start = this.doc.currentLine();
     const body = produce();
     for (const line of body) {
-      this.lines.push(line);
+      this.doc.push(line);
       this.lineToChange.push(change);
     }
-    const end = this.lines.length - 1;
+    const end = this.doc.currentLine() - 1;
     if (end > start) {
-      this.ranges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
+      this.foldingRanges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
     }
-    this.lines.push('');
+    this.doc.pushPlain('');
     this.lineToChange.push(undefined);
   }
 
   build(): Rendered {
     return {
-      text: this.lines.join('\n'),
-      foldingRanges: this.ranges,
-      lineToChange: this.lineToChange
+      text: this.doc.text(),
+      foldingRanges: this.foldingRanges,
+      lineToChange: this.lineToChange,
+      decorations: this.doc.decorations()
     };
   }
 }
 
-function renderChangeSection(header: string, change: Change): string[] {
-  const bookmarksTag =
-    change.bookmarks.length > 0 ? ` [${change.bookmarks.join(', ')}]` : '';
-  const conflictTag = change.isConflicted ? ' (conflict)' : '';
-  const emptyTag = change.isEmpty ? ' (empty)' : '';
+function renderChangeSection(header: string, change: Change): DecoratedLine[] {
+  const headerLine = new LineBuilder()
+    .dec('sectionHeader', header)
+    .plain(' ')
+    .dec('changeId', change.changeId.slice(0, 8))
+    .plain(' ')
+    .dec('commitId', change.commitId.slice(0, 8));
+
+  if (change.bookmarks.length > 0) {
+    headerLine.plain(' ').dec('bookmark', `[${change.bookmarks.join(', ')}]`);
+  }
+  if (change.isConflicted) {
+    headerLine.dec('conflict', ' (conflict)');
+  }
+  if (change.isEmpty) {
+    headerLine.dec('empty', ' (empty)');
+  }
+
   return [
-    `${header} ${change.changeId.slice(0, 8)} ${change.commitId.slice(0, 8)}` +
-      `${bookmarksTag}${conflictTag}${emptyTag}`,
-    `  ${change.descriptionFirstLine || '(no description set)'}`,
-    `  ${change.authorName} <${change.authorEmail}>`
+    headerLine.build(),
+    new LineBuilder()
+      .plain('  ')
+      .plain(change.descriptionFirstLine || '(no description set)')
+      .build(),
+    new LineBuilder().plain(`  ${change.authorName} <${change.authorEmail}>`).build()
   ];
 }
 
-function renderFilesSection(files: ReadonlyArray<FileChange>): string[] {
-  const lines: string[] = [`Working copy changes (${files.length}):`];
+function renderFilesSection(files: ReadonlyArray<FileChange>): DecoratedLine[] {
+  const lines: DecoratedLine[] = [
+    new LineBuilder().dec('sectionHeader', `Working copy changes (${files.length}):`).build()
+  ];
   for (const file of files) {
-    lines.push(`  ${fileKindGlyph(file.kind)} ${file.path}`);
+    lines.push(
+      new LineBuilder()
+        .plain('  ')
+        .dec(fileKindDecoration(file.kind), fileKindGlyph(file.kind))
+        .plain(` ${file.path}`)
+        .build()
+    );
   }
   return lines;
 }
 
+function fileKindDecoration(kind: FileChangeKind): DecorationKey {
+  switch (kind) {
+    case 'added':
+      return 'fileAdded';
+    case 'modified':
+      return 'fileModified';
+    case 'deleted':
+      return 'fileDeleted';
+    case 'renamed':
+      return 'fileRenamed';
+    case 'copied':
+      return 'fileCopied';
+  }
+}
+
 function isRootChange(change: Change): boolean {
-  // jj's root change has the all-z change_id.
   return /^z+$/.test(change.changeId);
 }

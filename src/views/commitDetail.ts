@@ -4,6 +4,7 @@ import { JjDriver } from '../jj/driver';
 import { findJjRepo, JjRepo } from '../jj/repo';
 import { Change, ChangeId } from '../model/change';
 import { FileChange } from '../model/fileChange';
+import { DecorationRanges } from '../render/decoratedText';
 import { fileKindGlyph } from '../render/fileKind';
 
 export const COMMIT_DETAIL_URI = vscode.Uri.from({
@@ -30,6 +31,7 @@ export class CommitDetailView implements vscode.TextDocumentContentProvider {
   private refreshToken = 0;
   private readonly onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.onDidChangeEmitter.event;
+  readonly uri = COMMIT_DETAIL_URI;
 
   provideTextDocumentContent(_uri: vscode.Uri): string {
     return this.rendered.text;
@@ -37,6 +39,10 @@ export class CommitDetailView implements vscode.TextDocumentContentProvider {
 
   getFoldingRanges(): ReadonlyArray<vscode.FoldingRange> {
     return this.rendered.foldingRanges;
+  }
+
+  getDecorations(): DecorationRanges {
+    return new Map();
   }
 
   async show(changeId: ChangeId, snapshot: boolean): Promise<void> {
