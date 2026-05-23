@@ -104,6 +104,16 @@ export class JjDriver {
     return parseDiffSummary(result.stdout);
   }
 
+  // Returns the unified `diff --git` text for the given revset (i.e. the
+  // diff that REV introduces relative to its first parent). Used by the
+  // commit detail view; the per-file `diff --git a/... b/...` headers let
+  // us split the output for folding client-side.
+  async diffText(opts: { readonly revset: string } & CommandOptions): Promise<string> {
+    const args = ['diff', '--git', '-r', opts.revset];
+    const result = await this.runChecked(args, opts);
+    return result.stdout;
+  }
+
   private async runChecked(
     args: ReadonlyArray<string>,
     opts?: CommandOptions

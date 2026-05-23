@@ -3,7 +3,8 @@ import * as vscode from 'vscode';
 import { JjDriver } from '../jj/driver';
 import { JjRepo, findJjRepo } from '../jj/repo';
 import { Change } from '../model/change';
-import { FileChange, FileChangeKind } from '../model/fileChange';
+import { FileChange } from '../model/fileChange';
+import { fileKindGlyph } from '../render/fileKind';
 
 export const STATUS_URI = vscode.Uri.from({ scheme: 'edamajutsu', path: 'status.edamajutsu' });
 
@@ -16,9 +17,13 @@ type StatusData = {
 type Rendered = {
   readonly text: string;
   readonly foldingRanges: ReadonlyArray<vscode.FoldingRange>;
+  // For each line index, the Change that line "belongs to" (used by `RET`
+  // to drill into the commit detail). Undefined for header / blank / non-
+  // change rows.
+  readonly lineToChange: ReadonlyArray<Change | undefined>;
 };
 
-const INITIAL: Rendered = { text: 'Loading...', foldingRanges: [] };
+const INITIAL: Rendered = { text: 'Loading...', foldingRanges: [], lineToChange: [] };
 
 // Owns the rendered text and folding ranges for the status view. The
 // TextDocumentContentProvider reads the cache; `refresh` is the only thing
@@ -37,6 +42,10 @@ export class StatusView implements vscode.TextDocumentContentProvider {
     return this.rendered.foldingRanges;
   }
 
+  changeAtLine(line: number): Change | undefined {
+    return this.rendered.lineToChange[line];
+  }
+
   async refresh(snapshot: boolean): Promise<void> {
     const token = ++this.refreshToken;
     const next = await this.produce(snapshot);
@@ -52,13 +61,13 @@ export class StatusView implements vscode.TextDocumentContentProvider {
     const folder = vscode.workspace.workspaceFolders?.[0];
     const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
     if (!repo) {
-      return { text: renderNoRepo(), foldingRanges: [] };
+      return emptyRendered(renderNoRepo());
     }
     try {
       const data = await fetchStatus(new JjDriver({ repoRoot: repo.root }), snapshot);
       return renderStatus(repo, data);
     } catch (err) {
-      return { text: renderError(repo, err), foldingRanges: [] };
+      return emptyRendered(renderError(repo, err));
     }
   }
 }
@@ -79,6 +88,11 @@ async function fetchStatus(driver: JjDriver, snapshot: boolean): Promise<StatusD
   const [parent] = await driver.log({ revset: '@-', limit: 1 });
   const files = await driver.diffSummary();
   return { workingCopy, parent, files };
+}
+
+function emptyRendered(text: string): Rendered {
+  const lines = text.split('\n');
+  return { text, foldingRanges: [], lineToChange: lines.map(() => undefined) };
 }
 
 function renderNoRepo(): string {
@@ -108,9 +122,9 @@ function renderError(repo: JjRepo, err: unknown): string {
   ].join('\n');
 }
 
-// Renderer that builds the status text and the folding ranges in lockstep:
-// each section call records the [start, end] line range it produced, so the
-// folding provider never has to re-parse the rendered text.
+// Renderer that builds the status text, folding ranges, and per-line change
+// map in lockstep: each section call records both the [start, end] line range
+// it produced and the Change those lines refer to.
 function renderStatus(repo: JjRepo, data: StatusData): Rendered {
   const out = new SectionBuilder();
   out.push(`edamajutsu: status`);
@@ -118,12 +132,14 @@ function renderStatus(repo: JjRepo, data: StatusData): Rendered {
   out.push(`Repository: ${repo.root}`);
   out.push('');
 
-  out.section(() => renderChangeSection('Working copy:', data.workingCopy));
+  out.section(data.workingCopy, () => renderChangeSection('Working copy:', data.workingCopy));
   if (data.parent && !isRootChange(data.parent)) {
-    out.section(() => renderChangeSection('Parent commit:', data.parent!));
+    out.section(data.parent, () => renderChangeSection('Parent commit:', data.parent!));
   }
   if (data.files.length > 0) {
-    out.section(() => renderFilesSection(data.files));
+    // Files belong to the working copy — pressing RET on a file row drills
+    // into @'s commit detail.
+    out.section(data.workingCopy, () => renderFilesSection(data.files));
   }
   return out.build();
 }
@@ -131,26 +147,34 @@ function renderStatus(repo: JjRepo, data: StatusData): Rendered {
 class SectionBuilder {
   private readonly lines: string[] = [];
   private readonly ranges: vscode.FoldingRange[] = [];
+  private readonly lineToChange: Array<Change | undefined> = [];
 
   push(line: string): void {
     this.lines.push(line);
+    this.lineToChange.push(undefined);
   }
 
-  section(produce: () => string[]): void {
+  section(change: Change, produce: () => string[]): void {
     const start = this.lines.length;
     const body = produce();
     for (const line of body) {
       this.lines.push(line);
+      this.lineToChange.push(change);
     }
     const end = this.lines.length - 1;
     if (end > start) {
       this.ranges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
     }
     this.lines.push('');
+    this.lineToChange.push(undefined);
   }
 
   build(): Rendered {
-    return { text: this.lines.join('\n'), foldingRanges: this.ranges };
+    return {
+      text: this.lines.join('\n'),
+      foldingRanges: this.ranges,
+      lineToChange: this.lineToChange
+    };
   }
 }
 
@@ -173,21 +197,6 @@ function renderFilesSection(files: ReadonlyArray<FileChange>): string[] {
     lines.push(`  ${fileKindGlyph(file.kind)} ${file.path}`);
   }
   return lines;
-}
-
-function fileKindGlyph(kind: FileChangeKind): string {
-  switch (kind) {
-    case 'added':
-      return 'A';
-    case 'modified':
-      return 'M';
-    case 'deleted':
-      return 'D';
-    case 'renamed':
-      return 'R';
-    case 'copied':
-      return 'C';
-  }
 }
 
 function isRootChange(change: Change): boolean {

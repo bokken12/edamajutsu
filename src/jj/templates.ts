@@ -28,6 +28,7 @@ export type LogFieldSpec = {
 export const LOG_FIELDS: ReadonlyArray<LogFieldSpec> = [
   { name: 'changeId',             expr: 'change_id',                                                       kind: 'raw' },
   { name: 'commitId',             expr: 'commit_id',                                                       kind: 'raw' },
+  { name: 'description',          expr: 'description.escape_json()',                                       kind: 'json' },
   { name: 'descriptionFirstLine', expr: 'description.first_line().escape_json()',                          kind: 'json' },
   { name: 'authorName',           expr: 'author.name().escape_json()',                                     kind: 'json' },
   // author.email() returns jj's structured `Email` type which lacks
