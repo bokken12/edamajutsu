@@ -336,3 +336,20 @@ test('describe overwrites the description of @', async () => {
   const [head] = await driver.log({ revset: '@', limit: 1 });
   expect(head!.descriptionFirstLine).toBe('rewritten description');
 });
+
+test('abandon drops the specified change', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+
+  // Abandon the parent of @ by its change_id (the production path — RET on
+  // a row in the log view gives us the Change record's change_id).
+  const [parent] = await driver.log({ revset: '@-', limit: 1 });
+  expect(parent!.descriptionFirstLine).toBe('first change');
+
+  await driver.abandon(parent!.changeId);
+
+  const summaries = (await driver.log({ revset: 'all()' })).map(
+    (c) => c.descriptionFirstLine
+  );
+  expect(summaries).not.toContain('first change');
+});

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import { JjDriver } from './jj/driver';
 import { findJjRepo } from './jj/repo';
+import { ChangeId } from './model/change';
 import { DecorationManager } from './render/decorationManager';
 import { createDecorationTypes } from './render/decorations';
 import { CommitDetailView, COMMIT_DETAIL_URI } from './views/commitDetail';
@@ -57,7 +58,66 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('edamajutsu.describe', () =>
       onDescribe(statusView, logView, commitView, opLogView)
+    ),
+    vscode.commands.registerCommand('edamajutsu.abandon', () =>
+      onAbandon(statusView, logView, commitView, opLogView)
     )
+  );
+}
+
+// Returns the change-id of the change the user's intent is currently focused
+// on: from cursor position in status/log, or the commit currently displayed
+// in commit detail. Undefined if there's no edamajutsu view active or the
+// cursor isn't on a change row.
+function activeChangeId(
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView
+): ChangeId | undefined {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    return undefined;
+  }
+  const uri = editor.document.uri.toString();
+  if (uri === STATUS_URI.toString()) {
+    return status.changeAtLine(editor.selection.active.line)?.changeId;
+  }
+  if (uri === LOG_URI.toString()) {
+    return log.changeAtLine(editor.selection.active.line)?.changeId;
+  }
+  if (uri === COMMIT_DETAIL_URI.toString()) {
+    return commit.currentChangeId();
+  }
+  return undefined;
+}
+
+async function onAbandon(
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView
+): Promise<void> {
+  const changeId = activeChangeId(status, log, commit);
+  if (!changeId) {
+    vscode.window.showInformationMessage('edamajutsu: no change selected to abandon.');
+    return;
+  }
+  const short = changeId.slice(0, 8);
+  const choice = await vscode.window.showWarningMessage(
+    `Abandon change ${short}? (Recoverable via \`u\`.)`,
+    { modal: true },
+    'Abandon'
+  );
+  if (choice !== 'Abandon') {
+    return;
+  }
+  await runMutation(
+    `jj abandon ${short}`,
+    status,
+    log,
+    commit,
+    opLog,
+    (d) => d.abandon(changeId)
   );
 }
 
