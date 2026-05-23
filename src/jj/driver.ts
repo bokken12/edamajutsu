@@ -167,6 +167,12 @@ export class JjDriver {
     await this.runChecked(['abandon', revset], { snapshot: true });
   }
 
+  // Switches @ to the given revision. Pending working-copy changes are
+  // snapshotted into the previous @ before the switch.
+  async edit(revset: string): Promise<void> {
+    await this.runChecked(['edit', revset], { snapshot: true });
+  }
+
   private async runChecked(
     args: ReadonlyArray<string>,
     opts?: CommandOptions

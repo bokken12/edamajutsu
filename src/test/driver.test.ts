@@ -353,3 +353,18 @@ test('abandon drops the specified change', async () => {
   );
   expect(summaries).not.toContain('first change');
 });
+
+test('edit switches @ to the specified change', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+
+  // Fixture leaves @ at "second change"; switch back to "first change".
+  const [parent] = await driver.log({ revset: '@-', limit: 1 });
+  expect(parent!.descriptionFirstLine).toBe('first change');
+
+  await driver.edit(parent!.changeId);
+
+  const [head] = await driver.log({ revset: '@', limit: 1 });
+  expect(head!.descriptionFirstLine).toBe('first change');
+  expect(head!.changeId).toBe(parent!.changeId);
+});

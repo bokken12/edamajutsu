@@ -61,7 +61,31 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('edamajutsu.abandon', () =>
       onAbandon(statusView, logView, commitView, opLogView)
+    ),
+    vscode.commands.registerCommand('edamajutsu.edit', () =>
+      onEdit(statusView, logView, commitView, opLogView)
     )
+  );
+}
+
+async function onEdit(
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView
+): Promise<void> {
+  const changeId = activeChangeId(status, log, commit);
+  if (!changeId) {
+    vscode.window.showInformationMessage('edamajutsu: no change selected to edit.');
+    return;
+  }
+  await runMutation(
+    `jj edit ${changeId.slice(0, 8)}`,
+    status,
+    log,
+    commit,
+    opLog,
+    (d) => d.edit(changeId)
   );
 }
 
