@@ -134,6 +134,10 @@
       {
         "command": "edamajutsu.help",
         "title": "Edamajutsu: Help (browse commands)"
+      },
+      {
+        "command": "edamajutsu.rebase",
+        "title": "Edamajutsu: Rebase Change at Point + Descendants"
       }
     ],
     "menus": {
@@ -208,6 +212,10 @@
         },
         {
           "command": "edamajutsu.help",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.rebase",
           "when": "editorLangId == edamajutsu"
         }
       ]
@@ -311,6 +319,11 @@
       {
         "command": "edamajutsu.help",
         "key": "shift+/",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.rebase",
+        "key": "r",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]

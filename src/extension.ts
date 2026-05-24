@@ -119,7 +119,69 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('edamajutsu.help', () =>
       vscode.commands.executeCommand('workbench.action.quickOpen', '>Edamajutsu: ')
+    ),
+    vscode.commands.registerCommand('edamajutsu.rebase', () =>
+      onRebase(statusView, logView, commitView, opLogView)
     )
+  );
+}
+
+// Rebase: source = change at cursor (+ descendants, via -s); destination =
+// picked from the configured-revset log.
+type ChangeQuickPickItem = vscode.QuickPickItem & { changeId: ChangeId };
+
+async function onRebase(
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView
+): Promise<void> {
+  const sourceId = activeChangeId(status, log, commit);
+  if (!sourceId) {
+    vscode.window.showInformationMessage('edamajutsu: no change selected to rebase.');
+    return;
+  }
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
+  if (!repo) {
+    vscode.window.showWarningMessage('edamajutsu: no jj repository in the current workspace.');
+    return;
+  }
+
+  let candidates: ReadonlyArray<{ changeId: ChangeId; descriptionFirstLine: string }>;
+  try {
+    candidates = await new JjDriver({ repoRoot: repo.root }).log({});
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`edamajutsu: listing destinations failed — ${message}`);
+    return;
+  }
+
+  const items: ChangeQuickPickItem[] = candidates
+    .filter((c) => c.changeId !== sourceId)
+    .map((c) => ({
+      label: c.changeId.slice(0, 8),
+      description: c.descriptionFirstLine || '(no description)',
+      changeId: c.changeId
+    }));
+  if (items.length === 0) {
+    vscode.window.showInformationMessage('edamajutsu: no destination changes available.');
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(items, {
+    placeHolder: `Rebase ${sourceId.slice(0, 8)} (+ descendants) onto...`
+  });
+  if (!picked) {
+    return;
+  }
+  await runMutation(
+    `jj rebase -s ${sourceId.slice(0, 8)} -d ${picked.label}`,
+    status,
+    log,
+    commit,
+    opLog,
+    (d) => d.rebase({ source: sourceId, destination: picked.changeId })
   );
 }
 

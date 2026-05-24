@@ -248,6 +248,17 @@ export class JjDriver {
     await this.runChecked(['bookmark', 'forget', name], { snapshot: true });
   }
 
+  // Rebases `source` (and its descendants, via `-s`) onto `destination`.
+  // Covers the common "move my work onto X" intent in one shot. Variants
+  // (single-commit `-r`, whole-branch `-b`, insert-before/-after) are
+  // deferred to a transient flow.
+  async rebase(opts: { readonly source: string; readonly destination: string }): Promise<void> {
+    await this.runChecked(
+      ['rebase', '-s', opts.source, '-d', opts.destination],
+      { snapshot: true }
+    );
+  }
+
   private async runChecked(
     args: ReadonlyArray<string>,
     opts?: CommandOptions
