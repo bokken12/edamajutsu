@@ -4,15 +4,21 @@ import { JjDriver } from '../jj/driver';
 import { findJjRepo, JjRepo } from '../jj/repo';
 import { Operation } from '../model/operation';
 import { DecorationRanges } from '../render/decoratedText';
+import { Rendered, renderRoot } from './general/documentView';
+import { LineBreakView, TextView } from './general/textView';
+import { View } from './general/view';
 
 export const OP_LOG_URI = vscode.Uri.from({
   scheme: 'edamajutsu',
   path: 'op-log.edamajutsu'
 });
 
-type Rendered = { readonly text: string };
-
-const INITIAL: Rendered = { text: 'Loading...' };
+const INITIAL: Rendered = {
+  text: 'Loading...',
+  foldingRanges: [],
+  lineToChange: [],
+  decorations: new Map()
+};
 
 // Read-only `jj op log` view. Same lifecycle as the other views: only
 // `refresh` talks to jj; a monotonic refreshToken guards against stale
@@ -34,7 +40,7 @@ export class OpLogView implements vscode.TextDocumentContentProvider {
   }
 
   getDecorations(): DecorationRanges {
-    return new Map();
+    return this.rendered.decorations;
   }
 
   async refresh(): Promise<void> {
@@ -51,13 +57,13 @@ export class OpLogView implements vscode.TextDocumentContentProvider {
     const folder = vscode.workspace.workspaceFolders?.[0];
     const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
     if (!repo) {
-      return { text: renderNoRepo() };
+      return plainRendered(renderNoRepo());
     }
     try {
       const ops = await new JjDriver({ repoRoot: repo.root }).opLog();
-      return { text: renderOpLog(ops) };
+      return renderRoot(buildOpLogTree(ops));
     } catch (err) {
-      return { text: renderError(repo, err) };
+      return plainRendered(renderError(repo, err));
     }
   }
 }
@@ -68,19 +74,31 @@ export async function openOpLog(view: OpLogView): Promise<void> {
   await vscode.window.showTextDocument(doc, { preview: false });
 }
 
-function renderOpLog(ops: ReadonlyArray<Operation>): string {
-  const lines: string[] = ['edamajutsu: op log', ''];
+function buildOpLogTree(ops: ReadonlyArray<Operation>): View {
+  const root = new View();
+  root.addSubview(TextView.plain('edamajutsu: op log'), new LineBreakView());
   if (ops.length === 0) {
-    lines.push('(no operations)');
-    lines.push('');
-    return lines.join('\n');
+    root.addSubview(TextView.plain('(no operations)'), new LineBreakView());
+    return root;
   }
   for (const op of ops) {
-    lines.push(`${op.id.slice(0, 12)}  ${op.time}  ${op.user}`);
-    lines.push(`  ${op.descriptionFirstLine || '(no description)'}`);
-    lines.push('');
+    root.addSubview(
+      TextView.plain(`${op.id.slice(0, 12)}  ${op.time}  ${op.user}`),
+      TextView.plain(`  ${op.descriptionFirstLine || '(no description)'}`),
+      new LineBreakView()
+    );
   }
-  return lines.join('\n');
+  return root;
+}
+
+function plainRendered(text: string): Rendered {
+  const lines = text.split('\n');
+  return {
+    text,
+    foldingRanges: [],
+    lineToChange: lines.map(() => undefined),
+    decorations: new Map()
+  };
 }
 
 function renderNoRepo(): string {

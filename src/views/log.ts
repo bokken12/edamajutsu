@@ -6,17 +6,18 @@ import { findJjRepo, JjRepo } from '../jj/repo';
 import { Change } from '../model/change';
 import { DecorationRanges } from '../render/decoratedText';
 import { formatChangeOneLine } from '../render/formatChange';
+import { Rendered, renderRoot } from './general/documentView';
+import { TextView } from './general/textView';
+import { View } from './general/view';
 
 export const LOG_URI = vscode.Uri.from({ scheme: 'edamajutsu', path: 'log.edamajutsu' });
 
-type Rendered = {
-  readonly text: string;
-  // For each rendered line, the Change displayed on that line (if any). Used
-  // by future `RET` handling. Phase 3 builds the map but doesn't consume it.
-  readonly lineToChange: ReadonlyArray<Change | undefined>;
+const INITIAL: Rendered = {
+  text: 'Loading...',
+  foldingRanges: [],
+  lineToChange: [],
+  decorations: new Map()
 };
-
-const INITIAL: Rendered = { text: 'Loading...', lineToChange: [] };
 
 // Owns the rendered text and line-index → Change map for the log view. Same
 // shape as StatusView: only `refresh` talks to jj; a refresh token guards
@@ -35,7 +36,7 @@ export class LogView implements vscode.TextDocumentContentProvider {
   // Decorations land in a follow-up PR; expose the no-op stub now so the
   // DecorationManager has a uniform interface to talk to.
   getDecorations(): DecorationRanges {
-    return new Map();
+    return this.rendered.decorations;
   }
 
   changeAtLine(line: number): Change | undefined {
@@ -56,13 +57,13 @@ export class LogView implements vscode.TextDocumentContentProvider {
     const folder = vscode.workspace.workspaceFolders?.[0];
     const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
     if (!repo) {
-      return renderNoRepo();
+      return plainRendered(renderNoRepo());
     }
     try {
       const lines = await new JjDriver({ repoRoot: repo.root }).logGraph({ snapshot });
-      return renderLog(lines);
+      return renderRoot(buildLogTree(lines));
     } catch (err) {
-      return renderError(repo, err);
+      return plainRendered(renderError(repo, err));
     }
   }
 }
@@ -73,51 +74,52 @@ export async function openLog(view: LogView): Promise<void> {
   await vscode.window.showTextDocument(doc, { preview: false });
 }
 
-function renderLog(lines: ReadonlyArray<GraphLine>): Rendered {
-  const text: string[] = [];
-  const lineToChange: Array<Change | undefined> = [];
-
+function buildLogTree(lines: ReadonlyArray<GraphLine>): View {
+  const root = new View();
   for (const line of lines) {
     if (line.kind === 'change') {
-      text.push(`${line.graphPrefix}${formatChangeOneLine(line.change)}`);
-      lineToChange.push(line.change);
+      root.addSubview(
+        TextView.plain(`${line.graphPrefix}${formatChangeOneLine(line.change)}`, line.change)
+      );
     } else {
-      text.push(line.text);
-      lineToChange.push(undefined);
+      root.addSubview(TextView.plain(line.text));
     }
   }
-
-  return { text: text.join('\n'), lineToChange };
+  return root;
 }
 
-function renderNoRepo(): Rendered {
+function plainRendered(text: string): Rendered {
+  const lines = text.split('\n');
   return {
-    text: [
-      'edamajutsu: log',
-      '',
-      'No jj repository found in the current workspace.',
-      ''
-    ].join('\n'),
-    lineToChange: []
+    text,
+    foldingRanges: [],
+    lineToChange: lines.map(() => undefined),
+    decorations: new Map()
   };
 }
 
-function renderError(repo: JjRepo, err: unknown): Rendered {
+function renderNoRepo(): string {
+  return [
+    'edamajutsu: log',
+    '',
+    'No jj repository found in the current workspace.',
+    ''
+  ].join('\n');
+}
+
+function renderError(repo: JjRepo, err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   const hint = /\bENOENT\b/.test(message)
     ? ['', 'Hint: the `jj` binary was not found on PATH.']
     : [];
-  return {
-    text: [
-      'edamajutsu: log',
-      '',
-      `Repository: ${repo.root}`,
-      '',
-      'Failed to read jj log:',
-      ...message.split('\n').map((l) => `  ${l}`),
-      ...hint,
-      ''
-    ].join('\n'),
-    lineToChange: []
-  };
+  return [
+    'edamajutsu: log',
+    '',
+    `Repository: ${repo.root}`,
+    '',
+    'Failed to read jj log:',
+    ...message.split('\n').map((l) => `  ${l}`),
+    ...hint,
+    ''
+  ].join('\n');
 }

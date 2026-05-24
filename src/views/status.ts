@@ -4,9 +4,13 @@ import { JjDriver } from '../jj/driver';
 import { JjRepo, findJjRepo } from '../jj/repo';
 import { Change } from '../model/change';
 import { FileChange, FileChangeKind } from '../model/fileChange';
-import { DecoratedDocBuilder, DecoratedLine, DecorationRanges, LineBuilder } from '../render/decoratedText';
+import { DecorationRanges, LineBuilder } from '../render/decoratedText';
 import { DecorationKey } from '../render/decorations';
 import { fileKindGlyph } from '../render/fileKind';
+import { Rendered, renderRoot } from './general/documentView';
+import { SectionView } from './general/sectionView';
+import { LineBreakView, TextView } from './general/textView';
+import { View } from './general/view';
 
 export const STATUS_URI = vscode.Uri.from({ scheme: 'edamajutsu', path: 'status.edamajutsu' });
 
@@ -14,16 +18,6 @@ type StatusData = {
   readonly workingCopy: Change;
   readonly parent: Change | undefined;
   readonly files: ReadonlyArray<FileChange>;
-};
-
-type Rendered = {
-  readonly text: string;
-  readonly foldingRanges: ReadonlyArray<vscode.FoldingRange>;
-  // For each line index, the Change that line "belongs to" (used by `RET`
-  // to drill into the commit detail). Undefined for header / blank / non-
-  // change rows.
-  readonly lineToChange: ReadonlyArray<Change | undefined>;
-  readonly decorations: DecorationRanges;
 };
 
 const INITIAL: Rendered = {
@@ -74,7 +68,7 @@ export class StatusView implements vscode.TextDocumentContentProvider {
     }
     try {
       const data = await fetchStatus(new JjDriver({ repoRoot: repo.root }), snapshot);
-      return renderStatus(repo, data);
+      return renderRoot(buildStatusTree(repo, data));
     } catch (err) {
       return plainRendered(renderError(repo, err));
     }
@@ -134,70 +128,42 @@ function renderError(repo: JjRepo, err: unknown): string {
   ].join('\n');
 }
 
-function renderStatus(repo: JjRepo, data: StatusData): Rendered {
-  const out = new StatusBuilder();
-  out.plain('edamajutsu: status');
-  out.plain('');
-  out.plain(`Repository: ${repo.root}`);
-  out.plain('');
+// A flat list of sections under a fixed header. Each section is foldable;
+// the section's `change` (if any) flows down to every row inside it for
+// cursor → change navigation.
+function buildStatusTree(repo: JjRepo, data: StatusData): View {
+  const root = new View();
+  root.addSubview(
+    TextView.plain('edamajutsu: status'),
+    new LineBreakView(),
+    TextView.plain(`Repository: ${repo.root}`),
+    new LineBreakView()
+  );
 
-  out.section(data.workingCopy, () => renderChangeSection('Working copy:', data.workingCopy));
+  root.addSubview(buildChangeSection('working-copy', 'Working copy:', data.workingCopy));
+  root.addSubview(new LineBreakView());
   if (data.parent && !isRootChange(data.parent)) {
-    out.section(data.parent, () => renderChangeSection('Parent commit:', data.parent!));
+    root.addSubview(buildChangeSection('parent', 'Parent commit:', data.parent));
+    root.addSubview(new LineBreakView());
   }
   if (data.files.length > 0) {
     // Files belong to the working copy — pressing RET on a file row drills
     // into @'s commit detail.
-    out.section(data.workingCopy, () => renderFilesSection(data.files));
+    root.addSubview(buildFilesSection(data.workingCopy, data.files));
+    root.addSubview(new LineBreakView());
   }
-  return out.build();
+  return root;
 }
 
-// Wraps DecoratedDocBuilder with the status-specific bookkeeping: folding
-// ranges per section and the line-to-change map for `RET` navigation.
-class StatusBuilder {
-  private readonly doc = new DecoratedDocBuilder();
-  private readonly foldingRanges: vscode.FoldingRange[] = [];
-  private readonly lineToChange: Array<Change | undefined> = [];
+function buildChangeSection(sectionId: string, header: string, change: Change): View {
+  const section = new SectionView(`status:${sectionId}:${change.changeId}`, change);
 
-  plain(text: string): void {
-    this.doc.pushPlain(text);
-    this.lineToChange.push(undefined);
-  }
-
-  section(change: Change, produce: () => DecoratedLine[]): void {
-    const start = this.doc.currentLine();
-    const body = produce();
-    for (const line of body) {
-      this.doc.push(line);
-      this.lineToChange.push(change);
-    }
-    const end = this.doc.currentLine() - 1;
-    if (end > start) {
-      this.foldingRanges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
-    }
-    this.doc.pushPlain('');
-    this.lineToChange.push(undefined);
-  }
-
-  build(): Rendered {
-    return {
-      text: this.doc.text(),
-      foldingRanges: this.foldingRanges,
-      lineToChange: this.lineToChange,
-      decorations: this.doc.decorations()
-    };
-  }
-}
-
-function renderChangeSection(header: string, change: Change): DecoratedLine[] {
   const headerLine = new LineBuilder()
     .dec('sectionHeader', header)
     .plain(' ')
     .dec('changeId', change.changeId.slice(0, 8))
     .plain(' ')
     .dec('commitId', change.commitId.slice(0, 8));
-
   if (change.bookmarks.length > 0) {
     headerLine.plain(' ').dec('bookmark', `[${change.bookmarks.join(', ')}]`);
   }
@@ -208,30 +174,44 @@ function renderChangeSection(header: string, change: Change): DecoratedLine[] {
     headerLine.dec('empty', ' (empty)');
   }
 
-  return [
-    headerLine.build(),
-    new LineBuilder()
-      .plain('  ')
-      .plain(change.descriptionFirstLine || '(no description set)')
-      .build(),
-    new LineBuilder().plain(`  ${change.authorName} <${change.authorEmail}>`).build()
-  ];
-}
-
-function renderFilesSection(files: ReadonlyArray<FileChange>): DecoratedLine[] {
-  const lines: DecoratedLine[] = [
-    new LineBuilder().dec('sectionHeader', `Working copy changes (${files.length}):`).build()
-  ];
-  for (const file of files) {
-    lines.push(
+  section.addSubview(
+    new TextView(headerLine.build(), change),
+    new TextView(
       new LineBuilder()
         .plain('  ')
-        .dec(fileKindDecoration(file.kind), fileKindGlyph(file.kind))
-        .plain(` ${file.path}`)
-        .build()
+        .plain(change.descriptionFirstLine || '(no description set)')
+        .build(),
+      change
+    ),
+    new TextView(
+      new LineBuilder().plain(`  ${change.authorName} <${change.authorEmail}>`).build(),
+      change
+    )
+  );
+  return section;
+}
+
+function buildFilesSection(change: Change, files: ReadonlyArray<FileChange>): View {
+  const section = new SectionView(`status:files:${change.changeId}`, change);
+  section.addSubview(
+    new TextView(
+      new LineBuilder().dec('sectionHeader', `Working copy changes (${files.length}):`).build(),
+      change
+    )
+  );
+  for (const file of files) {
+    section.addSubview(
+      new TextView(
+        new LineBuilder()
+          .plain('  ')
+          .dec(fileKindDecoration(file.kind), fileKindGlyph(file.kind))
+          .plain(` ${file.path}`)
+          .build(),
+        change
+      )
     );
   }
-  return lines;
+  return section;
 }
 
 function fileKindDecoration(kind: FileChangeKind): DecorationKey {

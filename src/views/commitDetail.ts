@@ -6,6 +6,10 @@ import { Change, ChangeId } from '../model/change';
 import { FileChange } from '../model/fileChange';
 import { DecorationRanges } from '../render/decoratedText';
 import { fileKindGlyph } from '../render/fileKind';
+import { Rendered, renderRoot } from './general/documentView';
+import { SectionView } from './general/sectionView';
+import { LineBreakView, TextView } from './general/textView';
+import { View } from './general/view';
 
 export const COMMIT_DETAIL_URI = vscode.Uri.from({
   scheme: 'edamajutsu',
@@ -18,12 +22,12 @@ type Detail = {
   readonly diff: string;
 };
 
-type Rendered = {
-  readonly text: string;
-  readonly foldingRanges: ReadonlyArray<vscode.FoldingRange>;
+const INITIAL: Rendered = {
+  text: 'No change selected.',
+  foldingRanges: [],
+  lineToChange: [],
+  decorations: new Map()
 };
-
-const INITIAL: Rendered = { text: 'No change selected.', foldingRanges: [] };
 
 export class CommitDetailView implements vscode.TextDocumentContentProvider {
   private current: ChangeId | undefined;
@@ -42,7 +46,7 @@ export class CommitDetailView implements vscode.TextDocumentContentProvider {
   }
 
   getDecorations(): DecorationRanges {
-    return new Map();
+    return this.rendered.decorations;
   }
 
   currentChangeId(): ChangeId | undefined {
@@ -71,13 +75,13 @@ export class CommitDetailView implements vscode.TextDocumentContentProvider {
     const folder = vscode.workspace.workspaceFolders?.[0];
     const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
     if (!repo) {
-      return { text: renderNoRepo(), foldingRanges: [] };
+      return plainRendered(renderNoRepo());
     }
     try {
       const detail = await fetchDetail(new JjDriver({ repoRoot: repo.root }), this.current, snapshot);
-      return renderDetail(detail);
+      return renderRoot(buildDetailTree(detail));
     } catch (err) {
-      return { text: renderError(repo, err, this.current), foldingRanges: [] };
+      return plainRendered(renderError(repo, err, this.current));
     }
   }
 }
@@ -97,6 +101,16 @@ async function fetchDetail(driver: JjDriver, revset: ChangeId, snapshot: boolean
     throw new Error(`change not found: ${revset}`);
   }
   return { change, files, diff };
+}
+
+function plainRendered(text: string): Rendered {
+  const lines = text.split('\n');
+  return {
+    text,
+    foldingRanges: [],
+    lineToChange: lines.map(() => undefined),
+    decorations: new Map()
+  };
 }
 
 function renderNoRepo(): string {
@@ -122,118 +136,101 @@ function renderError(repo: JjRepo, err: unknown, changeId: ChangeId): string {
   ].join('\n');
 }
 
-function renderDetail(detail: Detail): Rendered {
-  const out = new DocBuilder();
+function buildDetailTree(detail: Detail): View {
   const { change, files, diff } = detail;
+  const root = new View();
 
-  out.push(`edamajutsu: commit ${change.changeId.slice(0, 8)}`);
-  out.push('');
-  out.push(`Change:    ${change.changeId}`);
-  out.push(`Commit:    ${change.commitId}`);
-  out.push(`Author:    ${change.authorName} <${change.authorEmail}>`);
+  root.addSubview(TextView.plain(`edamajutsu: commit ${change.changeId.slice(0, 8)}`));
+  root.addSubview(new LineBreakView());
+  root.addSubview(TextView.plain(`Change:    ${change.changeId}`));
+  root.addSubview(TextView.plain(`Commit:    ${change.commitId}`));
+  root.addSubview(TextView.plain(`Author:    ${change.authorName} <${change.authorEmail}>`));
   if (change.parents.length > 0) {
-    out.push(`Parents:   ${change.parents.map((p) => p.slice(0, 8)).join(', ')}`);
+    root.addSubview(
+      TextView.plain(`Parents:   ${change.parents.map((p) => p.slice(0, 8)).join(', ')}`)
+    );
   }
   if (change.bookmarks.length > 0) {
-    out.push(`Bookmarks: ${change.bookmarks.join(', ')}`);
+    root.addSubview(TextView.plain(`Bookmarks: ${change.bookmarks.join(', ')}`));
   }
   const flags = [change.isEmpty ? 'empty' : '', change.isConflicted ? 'conflict' : '']
     .filter(Boolean)
     .join(', ');
   if (flags) {
-    out.push(`Flags:     ${flags}`);
+    root.addSubview(TextView.plain(`Flags:     ${flags}`));
   }
-  out.push('');
+  root.addSubview(new LineBreakView());
 
-  out.section('Description:', () => renderDescription(change));
+  root.addSubview(buildDescriptionSection(change));
+  root.addSubview(new LineBreakView());
+
   if (files.length > 0) {
-    out.section(`Files (${files.length}):`, () => renderFiles(files));
-  }
-  if (diff.trim() !== '') {
-    out.section('Diff:', () => renderDiff(diff, out));
+    root.addSubview(buildFilesSection(files));
+    root.addSubview(new LineBreakView());
   }
 
-  return out.build();
+  if (diff.trim() !== '') {
+    root.addSubview(buildDiffSection(diff));
+    root.addSubview(new LineBreakView());
+  }
+
+  return root;
 }
 
-function renderDescription(change: Change): string[] {
+function buildDescriptionSection(change: Change): View {
+  const section = new SectionView(`commit:description:${change.changeId}`);
+  section.addSubview(TextView.plain('Description:'));
   const body = change.description.trimEnd();
   if (body === '') {
-    return ['  (no description set)'];
+    section.addSubview(TextView.plain('  (no description set)'));
+  } else {
+    for (const line of body.split('\n')) {
+      section.addSubview(TextView.plain(`  ${line}`));
+    }
   }
-  return body.split('\n').map((line) => `  ${line}`);
+  return section;
 }
 
-function renderFiles(files: ReadonlyArray<FileChange>): string[] {
-  return files.map((f) => `  ${fileKindGlyph(f.kind)} ${f.path}`);
+function buildFilesSection(files: ReadonlyArray<FileChange>): View {
+  const section = new SectionView(`commit:files`);
+  section.addSubview(TextView.plain(`Files (${files.length}):`));
+  for (const f of files) {
+    section.addSubview(TextView.plain(`  ${fileKindGlyph(f.kind)} ${f.path}`));
+  }
+  return section;
 }
 
-// Renders the diff text verbatim and records a folding range for each
-// `diff --git ...` block. Returns the lines so DocBuilder.section() can
-// place them; emits inner folding ranges into the same builder.
-function renderDiff(diff: string, builder: DocBuilder): string[] {
+// The diff section contains a header line plus one inner SectionView per
+// `diff --git ...` block. Each inner section is independently foldable, so
+// users can collapse a single file's diff without losing the surrounding
+// scaffold.
+function buildDiffSection(diff: string): View {
+  const section = new SectionView('commit:diff');
+  section.addSubview(TextView.plain('Diff:'));
+
   const lines = diff.split('\n');
   // Drop trailing empty line that `split` produces from a terminal newline.
   if (lines.length > 0 && lines[lines.length - 1] === '') {
     lines.pop();
   }
 
-  // baseLine: the line index in the final document where this diff section's
-  // first line will land. DocBuilder.section() pushes lines after a header,
-  // so the first diff line will be at builder.currentLine() + 1 from the
-  // header — but we don't need exact bookkeeping here because we register
-  // ranges relative to the builder by using `markPendingDiffRanges`.
-  builder.queueDiffRanges(lines);
-  return lines;
-}
-
-class DocBuilder {
-  private readonly lines: string[] = [];
-  private readonly ranges: vscode.FoldingRange[] = [];
-
-  push(line: string): void {
-    this.lines.push(line);
-  }
-
-  // Emits a foldable section: header line, then body lines, then a blank
-  // separator. The fold covers header through last body line.
-  section(header: string, produce: () => string[]): void {
-    const start = this.lines.length;
-    this.lines.push(header);
-    for (const line of produce()) {
-      this.lines.push(line);
+  // Split into per-file blocks at `diff --git ` boundaries. Anything before
+  // the first such boundary is preamble inside the outer section header.
+  let currentBlock: SectionView | undefined;
+  for (const line of lines) {
+    if (line.startsWith('diff --git ')) {
+      currentBlock = new SectionView(`commit:diff:${line}`);
+      currentBlock.addSubview(TextView.plain(line));
+      section.addSubview(currentBlock);
+      continue;
     }
-    const end = this.lines.length - 1;
-    if (end > start) {
-      this.ranges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
-    }
-    this.lines.push('');
-  }
-
-  // Called by renderDiff while it's producing its body lines. We can't
-  // compute absolute line numbers until the lines actually land, so we walk
-  // the lines after the fact to find `diff --git ` boundaries.
-  queueDiffRanges(diffLines: ReadonlyArray<string>): void {
-    // The diff lines will be placed after the current end (which is the
-    // header line). The first diff line lands at this.lines.length, since
-    // section() pushes the header before calling produce().
-    const base = this.lines.length;
-    const headers: number[] = [];
-    diffLines.forEach((line, idx) => {
-      if (line.startsWith('diff --git ')) {
-        headers.push(base + idx);
-      }
-    });
-    for (let i = 0; i < headers.length; i += 1) {
-      const start = headers[i]!;
-      const end = (i + 1 < headers.length ? headers[i + 1]! : base + diffLines.length) - 1;
-      if (end > start) {
-        this.ranges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
-      }
+    if (currentBlock) {
+      currentBlock.addSubview(TextView.plain(line));
+    } else {
+      // Preamble before the first `diff --git` — rare but possible. Attach
+      // it to the outer section directly so it still renders.
+      section.addSubview(TextView.plain(line));
     }
   }
-
-  build(): Rendered {
-    return { text: this.lines.join('\n'), foldingRanges: this.ranges };
-  }
+  return section;
 }
