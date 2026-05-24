@@ -435,3 +435,75 @@ test('squashIntoParent folds @ into @-', async () => {
   const diffPaths = (await driver.diffSummary({ revset: '@-' })).map((f) => f.path);
   expect(diffPaths).toContain('b.txt');
 });
+
+test('redo re-applies the most recently undone operation', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+
+  jjSync(root, ['describe', '-m', 'about to be undone then redone']);
+  await driver.undo();
+  await driver.redo();
+
+  const [head] = await driver.log({ revset: '@', limit: 1 });
+  expect(head!.descriptionFirstLine).toBe('about to be undone then redone');
+});
+
+test('duplicate creates a sibling of the given change', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+  // Sanity: 3 commits in the fixture (root + first + second).
+  const before = await driver.log({ revset: 'all()' });
+  const [head] = await driver.log({ revset: '@', limit: 1 });
+
+  await driver.duplicate(head!.changeId);
+
+  const after = await driver.log({ revset: 'all()' });
+  expect(after.length).toBe(before.length + 1);
+  // Two changes share the same descriptionFirstLine now.
+  const summaries = after.map((c) => c.descriptionFirstLine);
+  const matches = summaries.filter((d) => d === 'second change').length;
+  expect(matches).toBe(2);
+});
+
+test('revert creates an inverse child of @', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+  // "first change" added a.txt. Reverting it should delete a.txt.
+  const [parent] = await driver.log({ revset: '@-', limit: 1 });
+  expect(parent!.descriptionFirstLine).toBe('first change');
+
+  await driver.revert(parent!.changeId);
+
+  // The revert is the child of @. Its diff should delete a.txt — the inverse
+  // of "first change"'s effect.
+  const [revert] = await driver.log({ revset: '@+', limit: 1 });
+  expect(revert).toBeDefined();
+  const files = await driver.diffSummary({ revset: revert!.changeId });
+  expect(files.find((f) => f.path === 'a.txt')?.kind).toBe('deleted');
+});
+
+test('deleteBookmark removes a bookmark from the local repo', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+
+  await driver.deleteBookmark('feature');
+  expect(await driver.listBookmarks()).not.toContain('feature');
+});
+
+test('renameBookmark moves the bookmark name', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+
+  await driver.renameBookmark('feature', 'feature-renamed');
+  const names = await driver.listBookmarks();
+  expect(names).toContain('feature-renamed');
+  expect(names).not.toContain('feature');
+});
+
+test('forgetBookmark drops the local bookmark without propagating', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+
+  await driver.forgetBookmark('feature');
+  expect(await driver.listBookmarks()).not.toContain('feature');
+});

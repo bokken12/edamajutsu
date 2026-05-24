@@ -212,6 +212,42 @@ export class JjDriver {
     await this.runChecked(['squash', '--use-destination-message'], { snapshot: true });
   }
 
+  // Inverse of `undo` — re-applies the most recently undone operation.
+  async redo(): Promise<void> {
+    await this.runChecked(['redo'], { snapshot: true });
+  }
+
+  // Creates a copy of the given change on top of its parents (i.e. as a
+  // sibling). Future PR can add `--insert-after` / `--onto` flags.
+  async duplicate(revset: string): Promise<void> {
+    await this.runChecked(['duplicate', '-r', revset], { snapshot: true });
+  }
+
+  // Creates a new change that's the inverse of REV, placed as a child of @.
+  // @ does NOT move to the new revert — callers who want to land on it
+  // should follow up with `edit('@+')`.
+  async revert(revset: string): Promise<void> {
+    await this.runChecked(['revert', '-r', revset, '--insert-after', '@'], { snapshot: true });
+  }
+
+  // Removes a bookmark. The underlying commit is not abandoned. The deletion
+  // is marked for propagation to remotes on the next push.
+  async deleteBookmark(name: string): Promise<void> {
+    await this.runChecked(['bookmark', 'delete', name], { snapshot: true });
+  }
+
+  // Renames a bookmark in place. Errors if `oldName` is absent or `newName`
+  // collides with an existing bookmark.
+  async renameBookmark(oldName: string, newName: string): Promise<void> {
+    await this.runChecked(['bookmark', 'rename', oldName, newName], { snapshot: true });
+  }
+
+  // Drops the local bookmark without propagating to remotes (unlike delete).
+  // Useful when you imported a remote bookmark you don't want locally.
+  async forgetBookmark(name: string): Promise<void> {
+    await this.runChecked(['bookmark', 'forget', name], { snapshot: true });
+  }
+
   private async runChecked(
     args: ReadonlyArray<string>,
     opts?: CommandOptions
