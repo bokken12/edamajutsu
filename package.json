@@ -102,6 +102,38 @@
       {
         "command": "edamajutsu.squash",
         "title": "Edamajutsu: Squash Working Copy Into Parent"
+      },
+      {
+        "command": "edamajutsu.redo",
+        "title": "Edamajutsu: Redo Last Undone Operation"
+      },
+      {
+        "command": "edamajutsu.duplicate",
+        "title": "Edamajutsu: Duplicate Change at Point"
+      },
+      {
+        "command": "edamajutsu.revert",
+        "title": "Edamajutsu: Revert Change at Point (apply its reverse)"
+      },
+      {
+        "command": "edamajutsu.bookmark.delete",
+        "title": "Edamajutsu: Delete Bookmark"
+      },
+      {
+        "command": "edamajutsu.bookmark.rename",
+        "title": "Edamajutsu: Rename Bookmark"
+      },
+      {
+        "command": "edamajutsu.bookmark.forget",
+        "title": "Edamajutsu: Forget Bookmark (local only, don't propagate to remotes)"
+      },
+      {
+        "command": "edamajutsu.closeView",
+        "title": "Edamajutsu: Close View"
+      },
+      {
+        "command": "edamajutsu.help",
+        "title": "Edamajutsu: Help (browse commands)"
       }
     ],
     "menus": {
@@ -145,6 +177,38 @@
         {
           "command": "edamajutsu.squash",
           "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.redo",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.duplicate",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.revert",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.bookmark.delete",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.bookmark.rename",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.bookmark.forget",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.closeView",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.help",
+          "when": "editorLangId == edamajutsu"
         }
       ]
     },
@@ -186,7 +250,7 @@
       },
       {
         "command": "edamajutsu.abandon",
-        "key": "a",
+        "key": "k",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       },
       {
@@ -205,8 +269,48 @@
         "when": "editorTextFocus && editorLangId == edamajutsu"
       },
       {
+        "command": "edamajutsu.bookmark.delete",
+        "key": "b d",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.bookmark.rename",
+        "key": "b r",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.bookmark.forget",
+        "key": "b f",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
         "command": "edamajutsu.squash",
-        "key": "shift+s",
+        "key": "s",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.redo",
+        "key": "shift+u",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.duplicate",
+        "key": "y",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.revert",
+        "key": "shift+v",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.closeView",
+        "key": "q",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.help",
+        "key": "shift+/",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]

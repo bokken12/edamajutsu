@@ -75,7 +75,144 @@ export function activate(context: vscode.ExtensionContext): void {
       runMutation('jj squash', statusView, logView, commitView, opLogView, (d) =>
         d.squashIntoParent()
       )
+    ),
+    vscode.commands.registerCommand('edamajutsu.redo', () =>
+      runMutation('jj redo', statusView, logView, commitView, opLogView, (d) => d.redo())
+    ),
+    vscode.commands.registerCommand('edamajutsu.duplicate', () =>
+      onChangeAtCursor('duplicate', statusView, logView, commitView, opLogView, (d, id) =>
+        d.duplicate(id)
+      )
+    ),
+    vscode.commands.registerCommand('edamajutsu.revert', () =>
+      onChangeAtCursor('revert', statusView, logView, commitView, opLogView, (d, id) =>
+        d.revert(id)
+      )
+    ),
+    vscode.commands.registerCommand('edamajutsu.bookmark.delete', () =>
+      onBookmarkPick(
+        'Delete which bookmark?',
+        'jj bookmark delete',
+        statusView,
+        logView,
+        commitView,
+        opLogView,
+        (driver, name) => driver.deleteBookmark(name)
+      )
+    ),
+    vscode.commands.registerCommand('edamajutsu.bookmark.forget', () =>
+      onBookmarkPick(
+        'Forget which bookmark?',
+        'jj bookmark forget',
+        statusView,
+        logView,
+        commitView,
+        opLogView,
+        (driver, name) => driver.forgetBookmark(name)
+      )
+    ),
+    vscode.commands.registerCommand('edamajutsu.bookmark.rename', () =>
+      onBookmarkRename(statusView, logView, commitView, opLogView)
+    ),
+    vscode.commands.registerCommand('edamajutsu.closeView', () =>
+      vscode.commands.executeCommand('workbench.action.closeActiveEditor')
+    ),
+    vscode.commands.registerCommand('edamajutsu.help', () =>
+      vscode.commands.executeCommand('workbench.action.quickOpen', '>Edamajutsu: ')
     )
+  );
+}
+
+// Helper: change-at-cursor + runMutation in one go.
+async function onChangeAtCursor(
+  verb: string,
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView,
+  action: (driver: JjDriver, id: ChangeId) => Promise<void>
+): Promise<void> {
+  const changeId = activeChangeId(status, log, commit);
+  if (!changeId) {
+    vscode.window.showInformationMessage(`edamajutsu: no change selected to ${verb}.`);
+    return;
+  }
+  await runMutation(
+    `jj ${verb} ${changeId.slice(0, 8)}`,
+    status,
+    log,
+    commit,
+    opLog,
+    (d) => action(d, changeId)
+  );
+}
+
+// Prompts the user to pick from existing bookmark names. Returns undefined if
+// there's no repo, the list fetch fails (popup already shown), the repo has
+// no bookmarks, or the user cancels.
+async function pickBookmark(prompt: string): Promise<string | undefined> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
+  if (!repo) {
+    vscode.window.showWarningMessage('edamajutsu: no jj repository in the current workspace.');
+    return undefined;
+  }
+  let bookmarks: string[];
+  try {
+    bookmarks = await new JjDriver({ repoRoot: repo.root }).listBookmarks();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`edamajutsu: listing bookmarks failed — ${message}`);
+    return undefined;
+  }
+  if (bookmarks.length === 0) {
+    vscode.window.showInformationMessage('edamajutsu: no bookmarks.');
+    return undefined;
+  }
+  return vscode.window.showQuickPick(bookmarks, { placeHolder: prompt });
+}
+
+// Helper: pick a bookmark → mutate. Used by delete and forget.
+async function onBookmarkPick(
+  prompt: string,
+  label: string,
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView,
+  action: (driver: JjDriver, name: string) => Promise<void>
+): Promise<void> {
+  const picked = await pickBookmark(prompt);
+  if (!picked) {
+    return;
+  }
+  await runMutation(`${label} ${picked}`, status, log, commit, opLog, (d) => action(d, picked));
+}
+
+async function onBookmarkRename(
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView
+): Promise<void> {
+  const oldName = await pickBookmark('Rename which bookmark?');
+  if (!oldName) {
+    return;
+  }
+  const newName = await vscode.window.showInputBox({
+    prompt: `New name for ${oldName}`,
+    value: oldName
+  });
+  if (newName === undefined || newName.trim() === '' || newName.trim() === oldName) {
+    return;
+  }
+  await runMutation(
+    `jj bookmark rename ${oldName} ${newName.trim()}`,
+    status,
+    log,
+    commit,
+    opLog,
+    (d) => d.renameBookmark(oldName, newName.trim())
   );
 }
 
@@ -118,32 +255,7 @@ async function onBookmarkSet(
     vscode.window.showInformationMessage('edamajutsu: no change selected for the bookmark.');
     return;
   }
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
-  if (!repo) {
-    vscode.window.showWarningMessage('edamajutsu: no jj repository in the current workspace.');
-    return;
-  }
-
-  let bookmarks: string[];
-  try {
-    bookmarks = await new JjDriver({ repoRoot: repo.root }).listBookmarks();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    vscode.window.showErrorMessage(`edamajutsu: listing bookmarks failed — ${message}`);
-    return;
-  }
-
-  if (bookmarks.length === 0) {
-    vscode.window.showInformationMessage(
-      'edamajutsu: no bookmarks to move. Use `b c` to create one.'
-    );
-    return;
-  }
-
-  const picked = await vscode.window.showQuickPick(bookmarks, {
-    placeHolder: `Move which bookmark to ${changeId.slice(0, 8)}?`
-  });
+  const picked = await pickBookmark(`Move which bookmark to ${changeId.slice(0, 8)}?`);
   if (!picked) {
     return;
   }
