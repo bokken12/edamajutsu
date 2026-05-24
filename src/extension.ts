@@ -129,6 +129,18 @@ export function activate(context: vscode.ExtensionContext): void {
       })
     )
   );
+
+  // Passive watcher: react to jj operations performed outside the extension
+  // (e.g. someone running `jj` in a terminal) by re-rendering open views
+  // with --ignore-working-copy. The watcher targets the op-head pointer
+  // file, which is rewritten by every jj op — see repoWatcher.ts for why
+  // that's the right granularity. Mutations issued by the extension call
+  // `suppressNext` so the watcher doesn't double-refresh on top of the
+  // refresh that runMutation already performs.
+  const watcherDisposable = ctx.startRepoWatcher();
+  if (watcherDisposable) {
+    context.subscriptions.push(watcherDisposable);
+  }
 }
 
 export function deactivate(): void {

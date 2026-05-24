@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import { JjDriver } from '../jj/driver';
 import { findJjRepo, JjRepo } from '../jj/repo';
+import { RepoWatcher, startRepoWatcher } from '../jj/repoWatcher';
 import { ChangeId } from '../model/change';
 import { CommitDetailView, COMMIT_DETAIL_URI } from '../views/commitDetail';
 import { LogView, LOG_URI, openLog } from '../views/log';
@@ -19,12 +20,43 @@ type ChangeQuickPickItem = vscode.QuickPickItem & { changeId: ChangeId };
 // Internal helpers (`runMutation`, `withPreservedCursor`, `pickBookmark`,
 // etc.) live here too so they share access to the same view set.
 export class AppContext {
+  // Passive watcher on `.jj/`. Set lazily by `startRepoWatcher` during
+  // activation. `runMutation` calls `suppressNext()` so the watcher doesn't
+  // double-refresh on top of the refresh that runMutation already performs.
+  private repoWatcher: RepoWatcher | undefined;
+
   constructor(
     private readonly status: StatusView,
     private readonly log: LogView,
     private readonly commit: CommitDetailView,
     private readonly opLog: OpLogView
   ) {}
+
+  // Starts a passive watcher on the active workspace's `.jj/` so external
+  // jj operations (e.g. a terminal `jj`) refresh open views. Returns a
+  // disposable to register with the extension context. Returns undefined
+  // if there's no workspace, no jj repo, or the watcher can't resolve the
+  // repo store — in those cases `g` still works.
+  startRepoWatcher(): vscode.Disposable | undefined {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
+    if (!repo) {
+      return undefined;
+    }
+    const watcher = startRepoWatcher(repo.root, () => {
+      void this.refreshOpenViews();
+    });
+    if (!watcher) {
+      return undefined;
+    }
+    this.repoWatcher = watcher;
+    return {
+      dispose: () => {
+        watcher.dispose();
+        this.repoWatcher = undefined;
+      }
+    };
+  }
 
   // ---- View-opening commands ----
 
@@ -333,9 +365,16 @@ export class AppContext {
       return;
     }
     const statusMessage = vscode.window.setStatusBarMessage(`Running ${label}…`);
+    // Mark the next debounced watcher fire as ours so we don't refresh twice
+    // (once from runMutation, once from the watcher reacting to the op the
+    // mutation just landed). Disarm on error: if the action fails before
+    // touching the repo, no watcher event will arrive and we don't want
+    // suppression to leak into a later external operation.
+    this.repoWatcher?.suppressNext();
     try {
       await action(new JjDriver({ repoRoot: repo.root }));
     } catch (err) {
+      this.repoWatcher?.disarm();
       const message = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(`edamajutsu: ${label} failed — ${message}`);
       return;
