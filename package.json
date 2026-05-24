@@ -94,6 +94,10 @@
       {
         "command": "edamajutsu.bookmark",
         "title": "Edamajutsu: Create Bookmark at Change at Point"
+      },
+      {
+        "command": "edamajutsu.squash",
+        "title": "Edamajutsu: Squash Working Copy Into Parent"
       }
     ],
     "menus": {
@@ -128,6 +132,10 @@
         },
         {
           "command": "edamajutsu.bookmark",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.squash",
           "when": "editorLangId == edamajutsu"
         }
       ]
@@ -181,6 +189,11 @@
       {
         "command": "edamajutsu.bookmark",
         "key": "b",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.squash",
+        "key": "shift+s",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]

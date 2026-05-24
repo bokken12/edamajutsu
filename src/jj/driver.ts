@@ -180,6 +180,14 @@ export class JjDriver {
     await this.runChecked(['bookmark', 'create', name, '-r', revset], { snapshot: true });
   }
 
+  // Squashes @ into @-: all changes from @ are moved into @-, then @ is
+  // dropped (a new empty @ is created in its place if @ had children).
+  // `--use-destination-message` keeps @-'s description as-is without opening
+  // an editor — users can rename after the fact via `c`.
+  async squashIntoParent(): Promise<void> {
+    await this.runChecked(['squash', '--use-destination-message'], { snapshot: true });
+  }
+
   private async runChecked(
     args: ReadonlyArray<string>,
     opts?: CommandOptions
