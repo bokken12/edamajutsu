@@ -392,6 +392,31 @@ test('createBookmark errors when the bookmark already exists', async () => {
   );
 });
 
+test('listBookmarks returns the local bookmark names', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+  // Fixture creates `feature`. Add a second one so we exercise multi-row output.
+  jjSync(root, ['bookmark', 'create', 'release', '-r', '@']);
+
+  const names = await driver.listBookmarks();
+  expect([...names].sort()).toEqual(['feature', 'release']);
+});
+
+test('setBookmark moves an existing bookmark to a new change', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+  // Fixture: `feature` is on @-. Move it to @.
+  const [head] = await driver.log({ revset: '@', limit: 1 });
+  expect([...head!.bookmarks]).not.toContain('feature');
+
+  await driver.setBookmark('feature', head!.changeId);
+
+  const [updatedHead] = await driver.log({ revset: '@', limit: 1 });
+  const [updatedParent] = await driver.log({ revset: '@-', limit: 1 });
+  expect([...updatedHead!.bookmarks]).toContain('feature');
+  expect([...updatedParent!.bookmarks]).not.toContain('feature');
+});
+
 test('squashIntoParent folds @ into @-', async () => {
   const root = buildFixtureRepo();
   const driver = makeDriver(root);
