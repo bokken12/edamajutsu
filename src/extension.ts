@@ -81,7 +81,10 @@ export function activate(context: vscode.ExtensionContext): void {
     register('edamajutsu.git.push', () => ctx.gitPush()),
     register('edamajutsu.git.fetch', () => ctx.gitFetch()),
     register('edamajutsu.bookmark.menu', () => showMenu(bookmarkMenu)),
-    register('edamajutsu.git.menu', () => showMenu(gitMenu))
+    register('edamajutsu.git.menu', () => showMenu(gitMenu)),
+    register('edamajutsu.toggleFold', async () => {
+      await vscode.commands.executeCommand('editor.toggleFold');
+    })
   );
 }
 
