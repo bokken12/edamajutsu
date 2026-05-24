@@ -128,6 +128,9 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('edamajutsu.git.fetch', () =>
       runMutation('jj git fetch', statusView, logView, commitView, opLogView, (d) => d.gitFetch())
+    ),
+    vscode.commands.registerCommand('edamajutsu.absorb', () =>
+      runMutation('jj absorb', statusView, logView, commitView, opLogView, (d) => d.absorb())
     )
   );
 }

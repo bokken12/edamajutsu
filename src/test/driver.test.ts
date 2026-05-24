@@ -508,6 +508,23 @@ test('forgetBookmark drops the local bookmark without propagating', async () => 
   expect(await driver.listBookmarks()).not.toContain('feature');
 });
 
+test('absorb folds working-copy changes into the matching ancestor', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+
+  // Modify a.txt — introduced in "first change". Absorb should move that
+  // hunk into "first change", leaving the working copy clean of a.txt.
+  fs.writeFileSync(path.join(root, 'a.txt'), 'one absorbed\n');
+
+  const before = (await driver.diffSummary({ snapshot: true })).map((f) => f.path);
+  expect(before).toContain('a.txt');
+
+  await driver.absorb();
+
+  const after = (await driver.diffSummary()).map((f) => f.path);
+  expect(after).not.toContain('a.txt');
+});
+
 test('rebase moves source + descendants onto destination', async () => {
   const root = buildFixtureRepo();
   const driver = makeDriver(root);

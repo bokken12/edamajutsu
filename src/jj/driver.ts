@@ -270,6 +270,12 @@ export class JjDriver {
     await this.runChecked(['git', 'fetch'], { snapshot: true });
   }
 
+  // Distributes the working-copy hunks into the most recent ancestor that
+  // touched the same lines. Mutating, snapshots first.
+  async absorb(): Promise<void> {
+    await this.runChecked(['absorb'], { snapshot: true });
+  }
+
   private async runChecked(
     args: ReadonlyArray<string>,
     opts?: CommandOptions

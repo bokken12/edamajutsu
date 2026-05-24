@@ -146,6 +146,10 @@
       {
         "command": "edamajutsu.git.fetch",
         "title": "Edamajutsu: Git Fetch (jj git fetch)"
+      },
+      {
+        "command": "edamajutsu.absorb",
+        "title": "Edamajutsu: Absorb Working Copy Into Ancestors"
       }
     ],
     "menus": {
@@ -232,6 +236,10 @@
         },
         {
           "command": "edamajutsu.git.fetch",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.absorb",
           "when": "editorLangId == edamajutsu"
         }
       ]
@@ -350,6 +358,11 @@
       {
         "command": "edamajutsu.git.fetch",
         "key": "shift+g f",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.absorb",
+        "key": "a",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]
