@@ -13,7 +13,7 @@
 | `?` | Help |
 | `q` | Close / exit view |
 | `RET` | Visit / drill in |
-| — | Fold / unfold section (target binding was `TAB`; currently unbound) |
+| `TAB` | Fold / unfold section at cursor (delegates to VSCode `editor.toggleFold`) |
 
 ## Movement
 

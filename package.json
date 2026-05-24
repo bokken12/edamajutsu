@@ -355,6 +355,11 @@
         "command": "edamajutsu.absorb",
         "key": "a",
         "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "editor.toggleFold",
+        "key": "tab",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]
   },
