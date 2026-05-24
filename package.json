@@ -144,6 +144,10 @@
         "title": "Edamajutsu: Git Push (jj git push --allow-new)"
       },
       {
+        "command": "edamajutsu.git.pushBookmark",
+        "title": "Edamajutsu: Git Push Specific Bookmark (jj git push --bookmark <name>)"
+      },
+      {
         "command": "edamajutsu.git.fetch",
         "title": "Edamajutsu: Git Fetch (jj git fetch)"
       },
@@ -240,6 +244,10 @@
         },
         {
           "command": "edamajutsu.git.push",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.git.pushBookmark",
           "when": "editorLangId == edamajutsu"
         },
         {

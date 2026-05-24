@@ -71,6 +71,7 @@ export function activate(context: vscode.ExtensionContext): void {
     register('edamajutsu.bookmark.rename', () => ctx.bookmarkRename()),
     register('edamajutsu.bookmark.forget', () => ctx.bookmarkForget()),
     register('edamajutsu.git.push', () => ctx.gitPush()),
+    register('edamajutsu.git.pushBookmark', () => ctx.gitPushBookmark()),
     register('edamajutsu.git.fetch', () => ctx.gitFetch()),
     register('edamajutsu.bookmark.menu', () =>
       showMenu({
@@ -118,6 +119,12 @@ export function activate(context: vscode.ExtensionContext): void {
             label: 'push',
             description: 'jj git push --allow-new',
             action: () => vscode.commands.executeCommand('edamajutsu.git.push')
+          },
+          {
+            key: 'P',
+            label: 'push bookmark',
+            description: 'Push specific bookmark (jj git push --bookmark <name>)',
+            action: () => vscode.commands.executeCommand('edamajutsu.git.pushBookmark')
           },
           {
             key: 'f',

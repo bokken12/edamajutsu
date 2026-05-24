@@ -265,6 +265,12 @@ export class JjDriver {
     await this.runChecked(['git', 'push', '--allow-new'], { snapshot: true });
   }
 
+  // Pushes a single named bookmark. `--allow-new` covers the first-push case
+  // for a bookmark that doesn't yet exist on the remote.
+  async gitPushBookmark(name: string): Promise<void> {
+    await this.runChecked(['git', 'push', '--allow-new', '--bookmark', name], { snapshot: true });
+  }
+
   // Fetches from configured remotes.
   async gitFetch(): Promise<void> {
     await this.runChecked(['git', 'fetch'], { snapshot: true });

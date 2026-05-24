@@ -525,6 +525,39 @@ test('absorb folds working-copy changes into the matching ancestor', async () =>
   expect(after).not.toContain('a.txt');
 });
 
+test('gitPushBookmark invokes `jj git push --allow-new --bookmark <name>`', async () => {
+  // Use a stub binary that records its argv so we can assert the exact
+  // structure passed to jj. We don't need a real repo here — the driver
+  // never inspects the repo dir before spawning.
+  const stubDir = mkTmp('eda-stub-');
+  const argvFile = path.join(stubDir, 'argv.json');
+  const stubPath = path.join(stubDir, 'jj-stub.js');
+  fs.writeFileSync(
+    stubPath,
+    [
+      '#!/usr/bin/env node',
+      `require('fs').writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));`,
+      'process.exit(0);'
+    ].join('\n')
+  );
+  fs.chmodSync(stubPath, 0o755);
+
+  const driver = new JjDriver({ repoRoot: stubDir, jjBinary: stubPath });
+  await driver.gitPushBookmark('feature');
+
+  const argv = JSON.parse(fs.readFileSync(argvFile, 'utf8')) as string[];
+  // `--ignore-working-copy` is omitted for mutating calls (snapshot: true).
+  expect(argv).toEqual([
+    '--no-pager',
+    '--color=never',
+    'git',
+    'push',
+    '--allow-new',
+    '--bookmark',
+    'feature'
+  ]);
+});
+
 test('rebase moves source + descendants onto destination', async () => {
   const root = buildFixtureRepo();
   const driver = makeDriver(root);

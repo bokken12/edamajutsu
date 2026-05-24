@@ -113,6 +113,12 @@ export class AppContext {
     return this.runMutation('jj git push', (d) => d.gitPush());
   }
 
+  gitPushBookmark(): Promise<void> {
+    return this.onBookmarkPick('Push which bookmark?', 'jj git push --bookmark', (d, name) =>
+      d.gitPushBookmark(name)
+    );
+  }
+
   gitFetch(): Promise<void> {
     return this.runMutation('jj git fetch', (d) => d.gitFetch());
   }
