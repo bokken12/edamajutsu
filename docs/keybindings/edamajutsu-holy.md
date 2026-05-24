@@ -13,7 +13,7 @@
 | `?` | Help |
 | `q` | Close / exit view |
 | `RET` | Visit / drill in |
-| — | Fold / unfold section (DESIGN.md target was `TAB`; currently unbound) |
+| — | Fold / unfold section (target binding was `TAB`; currently unbound) |
 
 ## Movement
 
@@ -62,4 +62,3 @@
 - All bindings are gated by `editorTextFocus && editorLangId == edamajutsu` — only active inside edamajutsu virtual buffers.
 - `g` as an immediate refresh prevents using `g` as a chord prefix (which vim uses for `gg`, `gd`, `gx`, `gt`, …). `G` as the first key of a `G _` sequence also collides with vim's "goto last line".
 - **`b _` and `G _` are implemented as transient menus, not raw chord bindings.** Pressing `b` triggers `edamajutsu.bookmark.menu`, which opens a VSCode quickpick listing the bookmark actions; the user picks one with a labeled hotkey (`c` / `s` / `d` / `r` / `f`). The user-facing keystroke sequence (`b` then `c` etc.) is identical to a chord, but the implementation route differs — useful to know if you're tracing why a binding fires. Same for `G` → `edamajutsu.git.menu` → `p` / `f`.
-- DESIGN.md's old Keybindings section was stale on three points (`a` listed as abandon when it was actually `k`, missing the `b _` bookmark sequence, missing `s y V U a G p G f`) — it has been replaced with a pointer here, and this file is the authoritative reference.
