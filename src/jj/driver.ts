@@ -249,12 +249,59 @@ export class JjDriver {
   }
 
   // Rebases `source` (and its descendants, via `-s`) onto `destination`.
-  // Covers the common "move my work onto X" intent in one shot. Variants
-  // (single-commit `-r`, whole-branch `-b`, insert-before/-after) are
-  // deferred to a transient flow.
+  // Covers the common "move my work onto X" intent in one shot.
   async rebase(opts: { readonly source: string; readonly destination: string }): Promise<void> {
     await this.runChecked(
       ['rebase', '-s', opts.source, '-d', opts.destination],
+      { snapshot: true }
+    );
+  }
+
+  // Rebases a single revision (no descendants, via `-r`) onto `destination`.
+  // Any hole left in the source's place is filled by rebasing its descendants
+  // onto its parents.
+  async rebaseRevision(opts: {
+    readonly revision: string;
+    readonly destination: string;
+  }): Promise<void> {
+    await this.runChecked(
+      ['rebase', '-r', opts.revision, '-d', opts.destination],
+      { snapshot: true }
+    );
+  }
+
+  // Rebases the whole "branch" containing `source` (via `-b`) onto
+  // `destination` — i.e. every revision in `(destination..source)::`.
+  async rebaseBranch(opts: {
+    readonly source: string;
+    readonly destination: string;
+  }): Promise<void> {
+    await this.runChecked(
+      ['rebase', '-b', opts.source, '-d', opts.destination],
+      { snapshot: true }
+    );
+  }
+
+  // Inserts `revision` (single commit, via `-r`) after `after`, splicing
+  // `after`'s existing descendants onto the rebased revision.
+  async rebaseAfter(opts: {
+    readonly revision: string;
+    readonly after: string;
+  }): Promise<void> {
+    await this.runChecked(
+      ['rebase', '-r', opts.revision, '--insert-after', opts.after],
+      { snapshot: true }
+    );
+  }
+
+  // Inserts `revision` (single commit, via `-r`) before `before`, so the
+  // rebased revision lands between `before`'s parents and `before` itself.
+  async rebaseBefore(opts: {
+    readonly revision: string;
+    readonly before: string;
+  }): Promise<void> {
+    await this.runChecked(
+      ['rebase', '-r', opts.revision, '--insert-before', opts.before],
       { snapshot: true }
     );
   }

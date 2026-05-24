@@ -545,3 +545,113 @@ test('rebase moves source + descendants onto destination', async () => {
   expect(movedSecond!.parents.length).toBe(1);
   expect(movedSecond!.parents[0]).toMatch(/^z+$/);
 });
+
+// Builds a four-change linear topology for exercising the rebase variants:
+//   root ← A ← B ← C ← D (@)
+// All four are described and non-empty. Returns the cwd.
+function buildLinearChain(): string {
+  const root = mkTmp('eda-driver-');
+  jjSync(root, ['git', 'init']);
+
+  fs.writeFileSync(path.join(root, 'a.txt'), 'a\n');
+  jjSync(root, ['describe', '-m', 'A']);
+
+  jjSync(root, ['new', '-m', 'B']);
+  fs.writeFileSync(path.join(root, 'b.txt'), 'b\n');
+
+  jjSync(root, ['new', '-m', 'C']);
+  fs.writeFileSync(path.join(root, 'c.txt'), 'c\n');
+
+  jjSync(root, ['new', '-m', 'D']);
+  fs.writeFileSync(path.join(root, 'd.txt'), 'd\n');
+
+  return root;
+}
+
+// Returns a map from description → change record for `all()`.
+async function chainByDescription(
+  driver: JjDriver
+): Promise<Map<string, { changeId: string; parents: ReadonlyArray<string> }>> {
+  const all = await driver.log({ revset: 'all()' });
+  return new Map(
+    all.map((c) => [c.descriptionFirstLine, { changeId: c.changeId, parents: c.parents }])
+  );
+}
+
+test('rebaseRevision moves a single commit, descendants stay put', async () => {
+  const root = buildLinearChain();
+  const driver = makeDriver(root);
+
+  const before = await chainByDescription(driver);
+  const a = before.get('A')!;
+  const c = before.get('C')!;
+
+  // Move C onto A. D was C's child; with -r, D should be reparented onto B
+  // (C's original parent) so it stays in the original branch.
+  await driver.rebaseRevision({ revision: c.changeId, destination: a.changeId });
+
+  const after = await chainByDescription(driver);
+  expect(after.get('C')!.parents).toEqual([a.changeId]);
+  // D's parent should now be B (filling the hole left by C).
+  expect(after.get('D')!.parents).toEqual([before.get('B')!.changeId]);
+});
+
+test('rebaseBranch moves the whole branch onto destination', async () => {
+  const root = buildLinearChain();
+  const driver = makeDriver(root);
+
+  const before = await chainByDescription(driver);
+  const a = before.get('A')!;
+  const c = before.get('C')!;
+
+  // `-b C -d A` → revset `(A..C)::` = {B, C, D}. After rebase, B sits on A
+  // (unchanged), C still on B, D still on C — but as a fresh branch off A.
+  // The interesting observation: B's parent stays A (it already was). The
+  // assertion that matters here is that the chain is intact and rooted at A.
+  await driver.rebaseBranch({ source: c.changeId, destination: a.changeId });
+
+  const after = await chainByDescription(driver);
+  const newB = after.get('B')!;
+  const newC = after.get('C')!;
+  const newD = after.get('D')!;
+  expect(newB.parents).toEqual([a.changeId]);
+  expect(newC.parents).toEqual([newB.changeId]);
+  expect(newD.parents).toEqual([newC.changeId]);
+});
+
+test('rebaseAfter inserts a revision just after the anchor', async () => {
+  const root = buildLinearChain();
+  const driver = makeDriver(root);
+
+  const before = await chainByDescription(driver);
+  const a = before.get('A')!;
+  const c = before.get('C')!;
+
+  // Insert C after A. Expected new chain: A → C → B → D.
+  await driver.rebaseAfter({ revision: c.changeId, after: a.changeId });
+
+  const after = await chainByDescription(driver);
+  expect(after.get('C')!.parents).toEqual([a.changeId]);
+  expect(after.get('B')!.parents).toEqual([after.get('C')!.changeId]);
+  expect(after.get('D')!.parents).toEqual([after.get('B')!.changeId]);
+});
+
+test('rebaseBefore inserts a revision just before the anchor', async () => {
+  const root = buildLinearChain();
+  const driver = makeDriver(root);
+
+  const before = await chainByDescription(driver);
+  const a = before.get('A')!;
+  const c = before.get('C')!;
+
+  // Insert C before B. C lands on B's parents (= {A}), then B/C-pre-rebase
+  // and descendants rebase onto the new C. Expected: A → C → B → (original C
+  // is gone) → D, i.e. A → C' → B' → D' (since C moved, original C-row
+  // becomes a no-op and is folded out).
+  await driver.rebaseBefore({ revision: c.changeId, before: before.get('B')!.changeId });
+
+  const after = await chainByDescription(driver);
+  expect(after.get('C')!.parents).toEqual([a.changeId]);
+  expect(after.get('B')!.parents).toEqual([after.get('C')!.changeId]);
+  expect(after.get('D')!.parents).toEqual([after.get('B')!.changeId]);
+});

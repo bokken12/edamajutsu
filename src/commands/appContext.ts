@@ -184,15 +184,121 @@ export class AppContext {
     await this.runMutation(`jj abandon ${short}`, (d) => d.abandon(changeId));
   }
 
+  // `r s` — `jj rebase -s SOURCE -d DEST`. The change at point plus its
+  // descendants moves onto a user-picked destination.
   async rebase(): Promise<void> {
     const sourceId = this.activeChangeId();
     if (!sourceId) {
       vscode.window.showInformationMessage('edamajutsu: no change selected to rebase.');
       return;
     }
+    const dest = await this.pickRebaseTarget(
+      `Rebase ${sourceId.slice(0, 8)} (+ descendants) onto...`,
+      sourceId
+    );
+    if (!dest) {
+      return;
+    }
+    await this.runMutation(
+      `jj rebase -s ${sourceId.slice(0, 8)} -d ${dest.label}`,
+      (d) => d.rebase({ source: sourceId, destination: dest.changeId })
+    );
+  }
+
+  // `r r` — `jj rebase -r REV -d DEST`. Single commit only, descendants stay.
+  async rebaseRevision(): Promise<void> {
+    const revId = this.activeChangeId();
+    if (!revId) {
+      vscode.window.showInformationMessage('edamajutsu: no change selected to rebase.');
+      return;
+    }
+    const dest = await this.pickRebaseTarget(
+      `Rebase ${revId.slice(0, 8)} (only) onto...`,
+      revId
+    );
+    if (!dest) {
+      return;
+    }
+    await this.runMutation(
+      `jj rebase -r ${revId.slice(0, 8)} -d ${dest.label}`,
+      (d) => d.rebaseRevision({ revision: revId, destination: dest.changeId })
+    );
+  }
+
+  // `r b` — `jj rebase -b SOURCE -d DEST`. Whole "branch" relative to the
+  // destination moves over.
+  async rebaseBranch(): Promise<void> {
+    const sourceId = this.activeChangeId();
+    if (!sourceId) {
+      vscode.window.showInformationMessage('edamajutsu: no change selected to rebase.');
+      return;
+    }
+    const dest = await this.pickRebaseTarget(
+      `Rebase branch containing ${sourceId.slice(0, 8)} onto...`,
+      sourceId
+    );
+    if (!dest) {
+      return;
+    }
+    await this.runMutation(
+      `jj rebase -b ${sourceId.slice(0, 8)} -d ${dest.label}`,
+      (d) => d.rebaseBranch({ source: sourceId, destination: dest.changeId })
+    );
+  }
+
+  // `r A` — `jj rebase -r REV --insert-after AFTER`. Splice REV in just
+  // after AFTER, pulling AFTER's existing descendants onto the rebased REV.
+  async rebaseInsertAfter(): Promise<void> {
+    const revId = this.activeChangeId();
+    if (!revId) {
+      vscode.window.showInformationMessage('edamajutsu: no change selected to rebase.');
+      return;
+    }
+    const target = await this.pickRebaseTarget(
+      `Insert ${revId.slice(0, 8)} after...`,
+      revId
+    );
+    if (!target) {
+      return;
+    }
+    await this.runMutation(
+      `jj rebase -r ${revId.slice(0, 8)} --insert-after ${target.label}`,
+      (d) => d.rebaseAfter({ revision: revId, after: target.changeId })
+    );
+  }
+
+  // `r B` — `jj rebase -r REV --insert-before BEFORE`. Splice REV in just
+  // before BEFORE.
+  async rebaseInsertBefore(): Promise<void> {
+    const revId = this.activeChangeId();
+    if (!revId) {
+      vscode.window.showInformationMessage('edamajutsu: no change selected to rebase.');
+      return;
+    }
+    const target = await this.pickRebaseTarget(
+      `Insert ${revId.slice(0, 8)} before...`,
+      revId
+    );
+    if (!target) {
+      return;
+    }
+    await this.runMutation(
+      `jj rebase -r ${revId.slice(0, 8)} --insert-before ${target.label}`,
+      (d) => d.rebaseBefore({ revision: revId, before: target.changeId })
+    );
+  }
+
+  // Lists log candidates and shows a QuickPick for picking a rebase target
+  // (destination, insert-anchor, etc.). Filters out `excludeId` so users
+  // can't pick the change they're trying to move as its own anchor.
+  // Returns undefined on cancel or any failure (popups shown).
+  private async pickRebaseTarget(
+    placeHolder: string,
+    excludeId: ChangeId
+  ): Promise<ChangeQuickPickItem | undefined> {
     const repo = this.resolveRepo();
     if (!repo) {
-      return;
+      return undefined;
     }
     let candidates: ReadonlyArray<{ changeId: ChangeId; descriptionFirstLine: string }>;
     try {
@@ -200,29 +306,20 @@ export class AppContext {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(`edamajutsu: listing destinations failed — ${message}`);
-      return;
+      return undefined;
     }
     const items: ChangeQuickPickItem[] = candidates
-      .filter((c) => c.changeId !== sourceId)
+      .filter((c) => c.changeId !== excludeId)
       .map((c) => ({
         label: c.changeId.slice(0, 8),
         description: c.descriptionFirstLine || '(no description)',
         changeId: c.changeId
       }));
     if (items.length === 0) {
-      vscode.window.showInformationMessage('edamajutsu: no destination changes available.');
-      return;
+      vscode.window.showInformationMessage('edamajutsu: no candidate changes available.');
+      return undefined;
     }
-    const picked = await vscode.window.showQuickPick(items, {
-      placeHolder: `Rebase ${sourceId.slice(0, 8)} (+ descendants) onto...`
-    });
-    if (!picked) {
-      return;
-    }
-    await this.runMutation(
-      `jj rebase -s ${sourceId.slice(0, 8)} -d ${picked.label}`,
-      (d) => d.rebase({ source: sourceId, destination: picked.changeId })
-    );
+    return vscode.window.showQuickPick(items, { placeHolder });
   }
 
   // ---- Bookmark mutations ----

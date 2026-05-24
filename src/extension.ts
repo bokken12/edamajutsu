@@ -64,6 +64,10 @@ export function activate(context: vscode.ExtensionContext): void {
     register('edamajutsu.revert', () => ctx.revert()),
     register('edamajutsu.squash', () => ctx.squash()),
     register('edamajutsu.rebase', () => ctx.rebase()),
+    register('edamajutsu.rebase.revision', () => ctx.rebaseRevision()),
+    register('edamajutsu.rebase.branch', () => ctx.rebaseBranch()),
+    register('edamajutsu.rebase.insertAfter', () => ctx.rebaseInsertAfter()),
+    register('edamajutsu.rebase.insertBefore', () => ctx.rebaseInsertBefore()),
     register('edamajutsu.absorb', () => ctx.absorb()),
     register('edamajutsu.bookmark.create', () => ctx.bookmarkCreate()),
     register('edamajutsu.bookmark.set', () => ctx.bookmarkSet()),
@@ -105,6 +109,43 @@ export function activate(context: vscode.ExtensionContext): void {
             label: 'forget',
             description: "Forget a bookmark locally (don't propagate to remotes)",
             action: () => vscode.commands.executeCommand('edamajutsu.bookmark.forget')
+          }
+        ]
+      })
+    ),
+    register('edamajutsu.rebase.menu', () =>
+      showMenu({
+        title: 'Rebase',
+        items: [
+          {
+            key: 's',
+            label: 'source + descendants',
+            description: 'jj rebase -s SOURCE -d DEST (change at point + descendants)',
+            action: () => vscode.commands.executeCommand('edamajutsu.rebase')
+          },
+          {
+            key: 'r',
+            label: 'single revision',
+            description: 'jj rebase -r REV -d DEST (change at point only)',
+            action: () => vscode.commands.executeCommand('edamajutsu.rebase.revision')
+          },
+          {
+            key: 'b',
+            label: 'whole branch',
+            description: 'jj rebase -b SOURCE -d DEST (entire branch containing change at point)',
+            action: () => vscode.commands.executeCommand('edamajutsu.rebase.branch')
+          },
+          {
+            key: 'A',
+            label: 'insert after',
+            description: 'jj rebase -r REV --insert-after AFTER',
+            action: () => vscode.commands.executeCommand('edamajutsu.rebase.insertAfter')
+          },
+          {
+            key: 'B',
+            label: 'insert before',
+            description: 'jj rebase -r REV --insert-before BEFORE',
+            action: () => vscode.commands.executeCommand('edamajutsu.rebase.insertBefore')
           }
         ]
       })

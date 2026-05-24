@@ -137,7 +137,27 @@
       },
       {
         "command": "edamajutsu.rebase",
-        "title": "Edamajutsu: Rebase Change at Point + Descendants"
+        "title": "Edamajutsu: Rebase Change at Point + Descendants (-s)"
+      },
+      {
+        "command": "edamajutsu.rebase.revision",
+        "title": "Edamajutsu: Rebase Change at Point Only (-r)"
+      },
+      {
+        "command": "edamajutsu.rebase.branch",
+        "title": "Edamajutsu: Rebase Branch Containing Change at Point (-b)"
+      },
+      {
+        "command": "edamajutsu.rebase.insertAfter",
+        "title": "Edamajutsu: Rebase Change at Point — Insert After (-A)"
+      },
+      {
+        "command": "edamajutsu.rebase.insertBefore",
+        "title": "Edamajutsu: Rebase Change at Point — Insert Before (-B)"
+      },
+      {
+        "command": "edamajutsu.rebase.menu",
+        "title": "Edamajutsu: Rebase Menu"
       },
       {
         "command": "edamajutsu.git.push",
@@ -236,6 +256,26 @@
         },
         {
           "command": "edamajutsu.rebase",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.rebase.revision",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.rebase.branch",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.rebase.insertAfter",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.rebase.insertBefore",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.rebase.menu",
           "when": "editorLangId == edamajutsu"
         },
         {
@@ -342,7 +382,7 @@
         "when": "editorTextFocus && editorLangId == edamajutsu"
       },
       {
-        "command": "edamajutsu.rebase",
+        "command": "edamajutsu.rebase.menu",
         "key": "r",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       },
