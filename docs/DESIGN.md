@@ -117,27 +117,9 @@ Drill-in for a single change. Shows: change id, commit id, full description, aut
 
 ## Keybindings
 
-Magit-style for navigation/control. jj-native letters for verbs (so V2 mutations slot in naturally).
+See [`docs/keybindings/`](./keybindings/) — one file per reference source (magit-holy, magit-evil, edamagit-holy, edamagit-evil, majutsu-holy, majutsu-evil, vscodevim, leaderkey), edamajutsu's own keymap split into [`edamajutsu-holy.md`](./keybindings/edamajutsu-holy.md) (V1 default) and [`edamajutsu-evil.md`](./keybindings/edamajutsu-evil.md) (opt-in vim overlay), and the rationale comparison in [`analysis.md`](./keybindings/analysis.md).
 
-**Universal (all views)**:
-
-| Key | Action |
-|---|---|
-| `g` | Refresh (snapshots) |
-| `q` | Close current view |
-| `?` | Show help / keymap for current view |
-| `TAB` | Fold / unfold section under cursor |
-| `RET` | Visit / drill in |
-| `j` / `k`, arrows | Move (VSCode default) |
-
-**View shortcuts (from status)**:
-
-| Key | Opens |
-|---|---|
-| `l` | Log view |
-| `o` | Op log view |
-
-V2 verb space (reserved, unimplemented in V1): `c` commit/describe, `n` new, `s` split, `S` squash, `r` rebase, `a` abandon, `e` edit, `b` bookmark, `u` undo. Mentioned here so V1 doesn't accidentally claim them.
+edamajutsu's V1 default is magit-style (holy). Bindings are buffer-scoped so vim works untouched elsewhere; inside an edamajutsu buffer the holy verbs win. Vim users who want a lighter ergonomic layer paste the snippet from `edamajutsu-evil.md` — see `analysis.md` for the rationale.
 
 ## Data Model
 
