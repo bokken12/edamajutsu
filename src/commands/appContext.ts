@@ -4,6 +4,7 @@ import { JjDriver } from '../jj/driver';
 import { findJjRepo, JjRepo } from '../jj/repo';
 import { ChangeId } from '../model/change';
 import { CommitDetailView, COMMIT_DETAIL_URI } from '../views/commitDetail';
+import { HelpView, openHelp } from '../views/help';
 import { LogView, LOG_URI, openLog } from '../views/log';
 import { OpLogView, OP_LOG_URI, openOpLog } from '../views/opLog';
 import { StatusView, STATUS_URI, openStatus } from '../views/status';
@@ -23,7 +24,8 @@ export class AppContext {
     private readonly status: StatusView,
     private readonly log: LogView,
     private readonly commit: CommitDetailView,
-    private readonly opLog: OpLogView
+    private readonly opLog: OpLogView,
+    private readonly helpView: HelpView
   ) {}
 
   // ---- View-opening commands ----
@@ -44,8 +46,8 @@ export class AppContext {
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
   }
 
-  async help(): Promise<void> {
-    await vscode.commands.executeCommand('workbench.action.quickOpen', '>Edamajutsu: ');
+  help(): Promise<void> {
+    return openHelp(this.helpView);
   }
 
   // ---- Refresh / navigation ----

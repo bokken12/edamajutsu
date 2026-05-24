@@ -4,9 +4,11 @@ import { AppContext } from './commands/appContext';
 import { DecorationManager } from './render/decorationManager';
 import { createDecorationTypes } from './render/decorations';
 import { showMenu } from './ui/menu';
+import { bookmarkMenu, gitMenu } from './ui/menus';
 import { COMMIT_DETAIL_URI, CommitDetailView } from './views/commitDetail';
 import { EdamajutsuContentProvider } from './views/contentProvider';
 import { EdamajutsuFoldingProvider } from './views/folding';
+import { HelpView } from './views/help';
 import { LogView } from './views/log';
 import { OpLogView } from './views/opLog';
 import { STATUS_URI, StatusView } from './views/status';
@@ -19,13 +21,15 @@ export function activate(context: vscode.ExtensionContext): void {
   const logView = new LogView();
   const commitView = new CommitDetailView();
   const opLogView = new OpLogView();
-  const ctx = new AppContext(statusView, logView, commitView, opLogView);
+  const helpView = new HelpView(context.extension.packageJSON);
+  const ctx = new AppContext(statusView, logView, commitView, opLogView, helpView);
 
   const contentProvider = new EdamajutsuContentProvider(
     statusView,
     logView,
     commitView,
-    opLogView
+    opLogView,
+    helpView
   );
   const foldingSelector: vscode.DocumentSelector = [
     { scheme: EDAMAJUTSU_SCHEME, language: EDAMAJUTSU_LANGUAGE, pattern: STATUS_URI.path },
@@ -34,9 +38,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const decorationTypes = createDecorationTypes();
   context.subscriptions.push(...Object.values(decorationTypes));
-  new DecorationManager(decorationTypes, [statusView, logView, commitView, opLogView]).register(
-    context
-  );
+  new DecorationManager(decorationTypes, [
+    statusView,
+    logView,
+    commitView,
+    opLogView,
+    helpView
+  ]).register(context);
 
   const register = (id: string, handler: () => Promise<void> | void): vscode.Disposable =>
     vscode.commands.registerCommand(id, handler);
@@ -72,62 +80,8 @@ export function activate(context: vscode.ExtensionContext): void {
     register('edamajutsu.bookmark.forget', () => ctx.bookmarkForget()),
     register('edamajutsu.git.push', () => ctx.gitPush()),
     register('edamajutsu.git.fetch', () => ctx.gitFetch()),
-    register('edamajutsu.bookmark.menu', () =>
-      showMenu({
-        title: 'Bookmark',
-        items: [
-          {
-            key: 'c',
-            label: 'create',
-            description: 'Create a new bookmark at the change at point',
-            action: () => vscode.commands.executeCommand('edamajutsu.bookmark.create')
-          },
-          {
-            key: 's',
-            label: 'set',
-            description: 'Move an existing bookmark to the change at point',
-            action: () => vscode.commands.executeCommand('edamajutsu.bookmark.set')
-          },
-          {
-            key: 'd',
-            label: 'delete',
-            description: 'Delete a bookmark',
-            action: () => vscode.commands.executeCommand('edamajutsu.bookmark.delete')
-          },
-          {
-            key: 'r',
-            label: 'rename',
-            description: 'Rename a bookmark',
-            action: () => vscode.commands.executeCommand('edamajutsu.bookmark.rename')
-          },
-          {
-            key: 'f',
-            label: 'forget',
-            description: "Forget a bookmark locally (don't propagate to remotes)",
-            action: () => vscode.commands.executeCommand('edamajutsu.bookmark.forget')
-          }
-        ]
-      })
-    ),
-    register('edamajutsu.git.menu', () =>
-      showMenu({
-        title: 'Git',
-        items: [
-          {
-            key: 'p',
-            label: 'push',
-            description: 'jj git push --allow-new',
-            action: () => vscode.commands.executeCommand('edamajutsu.git.push')
-          },
-          {
-            key: 'f',
-            label: 'fetch',
-            description: 'jj git fetch',
-            action: () => vscode.commands.executeCommand('edamajutsu.git.fetch')
-          }
-        ]
-      })
-    )
+    register('edamajutsu.bookmark.menu', () => showMenu(bookmarkMenu)),
+    register('edamajutsu.git.menu', () => showMenu(gitMenu))
   );
 }
 
