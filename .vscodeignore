@@ -11,3 +11,5 @@ webpack.config.js
 **/*.map
 **/*.ts
 docs/**
+install.sh
+.github/**
