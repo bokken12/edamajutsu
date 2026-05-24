@@ -150,6 +150,14 @@
       {
         "command": "edamajutsu.absorb",
         "title": "Edamajutsu: Absorb Working Copy Into Ancestors"
+      },
+      {
+        "command": "edamajutsu.bookmark.menu",
+        "title": "Edamajutsu: Bookmark Menu"
+      },
+      {
+        "command": "edamajutsu.git.menu",
+        "title": "Edamajutsu: Git Menu"
       }
     ],
     "menus": {
@@ -241,6 +249,14 @@
         {
           "command": "edamajutsu.absorb",
           "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.bookmark.menu",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.git.menu",
+          "when": "editorLangId == edamajutsu"
         }
       ]
     },
@@ -291,28 +307,8 @@
         "when": "editorTextFocus && editorLangId == edamajutsu"
       },
       {
-        "command": "edamajutsu.bookmark.create",
-        "key": "b c",
-        "when": "editorTextFocus && editorLangId == edamajutsu"
-      },
-      {
-        "command": "edamajutsu.bookmark.set",
-        "key": "b s",
-        "when": "editorTextFocus && editorLangId == edamajutsu"
-      },
-      {
-        "command": "edamajutsu.bookmark.delete",
-        "key": "b d",
-        "when": "editorTextFocus && editorLangId == edamajutsu"
-      },
-      {
-        "command": "edamajutsu.bookmark.rename",
-        "key": "b r",
-        "when": "editorTextFocus && editorLangId == edamajutsu"
-      },
-      {
-        "command": "edamajutsu.bookmark.forget",
-        "key": "b f",
+        "command": "edamajutsu.bookmark.menu",
+        "key": "b",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       },
       {
@@ -351,13 +347,8 @@
         "when": "editorTextFocus && editorLangId == edamajutsu"
       },
       {
-        "command": "edamajutsu.git.push",
-        "key": "shift+g p",
-        "when": "editorTextFocus && editorLangId == edamajutsu"
-      },
-      {
-        "command": "edamajutsu.git.fetch",
-        "key": "shift+g f",
+        "command": "edamajutsu.git.menu",
+        "key": "shift+g",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       },
       {

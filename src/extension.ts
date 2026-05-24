@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { AppContext } from './commands/appContext';
 import { DecorationManager } from './render/decorationManager';
 import { createDecorationTypes } from './render/decorations';
+import { showMenu } from './ui/menu';
 import { COMMIT_DETAIL_URI, CommitDetailView } from './views/commitDetail';
 import { EdamajutsuContentProvider } from './views/contentProvider';
 import { EdamajutsuFoldingProvider } from './views/folding';
@@ -70,7 +71,63 @@ export function activate(context: vscode.ExtensionContext): void {
     register('edamajutsu.bookmark.rename', () => ctx.bookmarkRename()),
     register('edamajutsu.bookmark.forget', () => ctx.bookmarkForget()),
     register('edamajutsu.git.push', () => ctx.gitPush()),
-    register('edamajutsu.git.fetch', () => ctx.gitFetch())
+    register('edamajutsu.git.fetch', () => ctx.gitFetch()),
+    register('edamajutsu.bookmark.menu', () =>
+      showMenu({
+        title: 'Bookmark',
+        items: [
+          {
+            key: 'c',
+            label: 'create',
+            description: 'Create a new bookmark at the change at point',
+            action: () => vscode.commands.executeCommand('edamajutsu.bookmark.create')
+          },
+          {
+            key: 's',
+            label: 'set',
+            description: 'Move an existing bookmark to the change at point',
+            action: () => vscode.commands.executeCommand('edamajutsu.bookmark.set')
+          },
+          {
+            key: 'd',
+            label: 'delete',
+            description: 'Delete a bookmark',
+            action: () => vscode.commands.executeCommand('edamajutsu.bookmark.delete')
+          },
+          {
+            key: 'r',
+            label: 'rename',
+            description: 'Rename a bookmark',
+            action: () => vscode.commands.executeCommand('edamajutsu.bookmark.rename')
+          },
+          {
+            key: 'f',
+            label: 'forget',
+            description: "Forget a bookmark locally (don't propagate to remotes)",
+            action: () => vscode.commands.executeCommand('edamajutsu.bookmark.forget')
+          }
+        ]
+      })
+    ),
+    register('edamajutsu.git.menu', () =>
+      showMenu({
+        title: 'Git',
+        items: [
+          {
+            key: 'p',
+            label: 'push',
+            description: 'jj git push --allow-new',
+            action: () => vscode.commands.executeCommand('edamajutsu.git.push')
+          },
+          {
+            key: 'f',
+            label: 'fetch',
+            description: 'jj git fetch',
+            action: () => vscode.commands.executeCommand('edamajutsu.git.fetch')
+          }
+        ]
+      })
+    )
   );
 }
 
