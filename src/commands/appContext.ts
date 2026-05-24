@@ -332,12 +332,15 @@ export class AppContext {
     if (!repo) {
       return;
     }
+    const statusMessage = vscode.window.setStatusBarMessage(`Running ${label}…`);
     try {
       await action(new JjDriver({ repoRoot: repo.root }));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(`edamajutsu: ${label} failed — ${message}`);
       return;
+    } finally {
+      statusMessage.dispose();
     }
     // The mutation already snapshotted; refreshes can stay passive.
     await this.refreshOpenViews();
