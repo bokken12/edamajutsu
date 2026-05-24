@@ -90,6 +90,10 @@
       {
         "command": "edamajutsu.edit",
         "title": "Edamajutsu: Edit Change at Point"
+      },
+      {
+        "command": "edamajutsu.bookmark",
+        "title": "Edamajutsu: Create Bookmark at Change at Point"
       }
     ],
     "menus": {
@@ -120,6 +124,10 @@
         },
         {
           "command": "edamajutsu.edit",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.bookmark",
           "when": "editorLangId == edamajutsu"
         }
       ]
@@ -168,6 +176,11 @@
       {
         "command": "edamajutsu.edit",
         "key": "e",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.bookmark",
+        "key": "b",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]

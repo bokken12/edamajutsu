@@ -173,6 +173,13 @@ export class JjDriver {
     await this.runChecked(['edit', revset], { snapshot: true });
   }
 
+  // Creates a new bookmark at the given revset. Errors if a bookmark with
+  // that name already exists — moving an existing bookmark needs a different
+  // verb so the user can't typo a name and silently overwrite something.
+  async createBookmark(name: string, revset: string): Promise<void> {
+    await this.runChecked(['bookmark', 'create', name, '-r', revset], { snapshot: true });
+  }
+
   private async runChecked(
     args: ReadonlyArray<string>,
     opts?: CommandOptions

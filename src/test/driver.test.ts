@@ -368,3 +368,26 @@ test('edit switches @ to the specified change', async () => {
   expect(head!.descriptionFirstLine).toBe('first change');
   expect(head!.changeId).toBe(parent!.changeId);
 });
+
+test('createBookmark creates a new bookmark at the given change', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+  const [head] = await driver.log({ revset: '@', limit: 1 });
+
+  await driver.createBookmark('release', head!.changeId);
+
+  const [updated] = await driver.log({ revset: '@', limit: 1 });
+  expect([...updated!.bookmarks]).toContain('release');
+});
+
+test('createBookmark errors when the bookmark already exists', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+  const [head] = await driver.log({ revset: '@', limit: 1 });
+
+  // Fixture already created `feature` on @-. Creating another with the same
+  // name must fail rather than silently overwrite.
+  await expect(driver.createBookmark('feature', head!.changeId)).rejects.toThrow(
+    /already exists/i
+  );
+});
