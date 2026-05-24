@@ -44,6 +44,7 @@ test('? help view renders the current keybindings', () => {
       l     Open Log
       o     Open Op Log
       RET   Visit at Point
+      TAB   Toggle Fold at Cursor
       ?     Help
       q     Close View
 

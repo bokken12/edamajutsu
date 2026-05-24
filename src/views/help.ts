@@ -35,6 +35,7 @@ const CATEGORIES: ReadonlyArray<{ title: string; commands: ReadonlyArray<string>
       'edamajutsu.openLog',
       'edamajutsu.openOpLog',
       'edamajutsu.visitAtPoint',
+      'editor.toggleFold',
       'edamajutsu.help',
       'edamajutsu.closeView'
     ]
@@ -174,11 +175,16 @@ function displayKey(key: string): string {
   return key;
 }
 
+// Friendly titles for non-edamajutsu commands we bind (built-in VSCode
+// commands like `editor.toggleFold` don't appear in our `contributes.commands`
+// list, so the help buffer needs an explicit label for them).
+const BUILTIN_TITLES = new Map<string, string>([['editor.toggleFold', 'Toggle Fold at Cursor']]);
+
 // Command titles in package.json are namespaced ("Edamajutsu: Refresh") for
 // the command palette; that prefix is redundant inside the help buffer.
 function prettyTitle(title: string | undefined, command: string): string {
   if (!title) {
-    return command.replace(/^edamajutsu\./, '');
+    return BUILTIN_TITLES.get(command) ?? command.replace(/^edamajutsu\./, '');
   }
   return title.replace(/^Edamajutsu:\s*/, '');
 }
