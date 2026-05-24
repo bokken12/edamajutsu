@@ -507,3 +507,24 @@ test('forgetBookmark drops the local bookmark without propagating', async () => 
   await driver.forgetBookmark('feature');
   expect(await driver.listBookmarks()).not.toContain('feature');
 });
+
+test('rebase moves source + descendants onto destination', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+
+  // Fixture topology: root ← "first" ← "second" (@). Rebase "second" onto root.
+  const [second] = await driver.log({ revset: '@', limit: 1 });
+  const [first] = await driver.log({ revset: '@-', limit: 1 });
+  expect(second!.descriptionFirstLine).toBe('second change');
+  expect(first!.descriptionFirstLine).toBe('first change');
+  expect([...second!.parents]).toEqual([first!.changeId]);
+
+  // Destination = the root change (all-z change_id).
+  await driver.rebase({ source: second!.changeId, destination: 'root()' });
+
+  // After rebase, "second" should now have root as its parent.
+  const [movedSecond] = await driver.log({ revset: '@', limit: 1 });
+  expect(movedSecond!.descriptionFirstLine).toBe('second change');
+  expect(movedSecond!.parents.length).toBe(1);
+  expect(movedSecond!.parents[0]).toMatch(/^z+$/);
+});
