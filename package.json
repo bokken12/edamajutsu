@@ -138,6 +138,14 @@
       {
         "command": "edamajutsu.rebase",
         "title": "Edamajutsu: Rebase Change at Point + Descendants"
+      },
+      {
+        "command": "edamajutsu.git.push",
+        "title": "Edamajutsu: Git Push (jj git push --allow-new)"
+      },
+      {
+        "command": "edamajutsu.git.fetch",
+        "title": "Edamajutsu: Git Fetch (jj git fetch)"
       }
     ],
     "menus": {
@@ -216,6 +224,14 @@
         },
         {
           "command": "edamajutsu.rebase",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.git.push",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.git.fetch",
           "when": "editorLangId == edamajutsu"
         }
       ]
@@ -324,6 +340,16 @@
       {
         "command": "edamajutsu.rebase",
         "key": "r",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.git.push",
+        "key": "shift+g p",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.git.fetch",
+        "key": "shift+g f",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       }
     ]

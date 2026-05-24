@@ -122,6 +122,12 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('edamajutsu.rebase', () =>
       onRebase(statusView, logView, commitView, opLogView)
+    ),
+    vscode.commands.registerCommand('edamajutsu.git.push', () =>
+      runMutation('jj git push', statusView, logView, commitView, opLogView, (d) => d.gitPush())
+    ),
+    vscode.commands.registerCommand('edamajutsu.git.fetch', () =>
+      runMutation('jj git fetch', statusView, logView, commitView, opLogView, (d) => d.gitFetch())
     )
   );
 }

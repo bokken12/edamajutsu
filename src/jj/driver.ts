@@ -259,6 +259,17 @@ export class JjDriver {
     );
   }
 
+  // Pushes local bookmark changes (including newly-created bookmarks) to
+  // their tracked remotes. `--allow-new` covers the first-push case.
+  async gitPush(): Promise<void> {
+    await this.runChecked(['git', 'push', '--allow-new'], { snapshot: true });
+  }
+
+  // Fetches from configured remotes.
+  async gitFetch(): Promise<void> {
+    await this.runChecked(['git', 'fetch'], { snapshot: true });
+  }
+
   private async runChecked(
     args: ReadonlyArray<string>,
     opts?: CommandOptions
