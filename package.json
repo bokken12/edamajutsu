@@ -158,6 +158,10 @@
       {
         "command": "edamajutsu.git.menu",
         "title": "Edamajutsu: Git Menu"
+      },
+      {
+        "command": "edamajutsu.toggleFold",
+        "title": "Edamajutsu: Toggle Fold at Cursor"
       }
     ],
     "menus": {
@@ -256,6 +260,10 @@
         },
         {
           "command": "edamajutsu.git.menu",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.toggleFold",
           "when": "editorLangId == edamajutsu"
         }
       ]
@@ -357,9 +365,9 @@
         "when": "editorTextFocus && editorLangId == edamajutsu"
       },
       {
-        "command": "editor.toggleFold",
+        "command": "edamajutsu.toggleFold",
         "key": "tab",
-        "when": "editorTextFocus && editorLangId == edamajutsu"
+        "when": "editorTextFocus && editorLangId == edamajutsu && vim.mode =~ /^(?!SearchInProgressMode|CommandlineInProgress).*$/"
       }
     ]
   },
