@@ -67,6 +67,11 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('edamajutsu.bookmark', () =>
       onBookmark(statusView, logView, commitView, opLogView)
+    ),
+    vscode.commands.registerCommand('edamajutsu.squash', () =>
+      runMutation('jj squash', statusView, logView, commitView, opLogView, (d) =>
+        d.squashIntoParent()
+      )
     )
   );
 }

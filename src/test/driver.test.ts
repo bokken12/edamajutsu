@@ -391,3 +391,22 @@ test('createBookmark errors when the bookmark already exists', async () => {
     /already exists/i
   );
 });
+
+test('squashIntoParent folds @ into @-', async () => {
+  const root = buildFixtureRepo();
+  const driver = makeDriver(root);
+
+  // @ currently has b.txt added on top of "first change". Squash takes that
+  // tree change down into "first change", leaving a fresh empty @ behind.
+  const [parentBefore] = await driver.log({ revset: '@-', limit: 1 });
+  expect(parentBefore!.descriptionFirstLine).toBe('first change');
+
+  await driver.squashIntoParent();
+
+  // @ is now a fresh empty change. @- now contains b.txt.
+  const [head] = await driver.log({ revset: '@', limit: 1 });
+  expect(head!.isEmpty).toBe(true);
+
+  const diffPaths = (await driver.diffSummary({ revset: '@-' })).map((f) => f.path);
+  expect(diffPaths).toContain('b.txt');
+});
