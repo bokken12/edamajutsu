@@ -65,8 +65,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('edamajutsu.edit', () =>
       onEdit(statusView, logView, commitView, opLogView)
     ),
-    vscode.commands.registerCommand('edamajutsu.bookmark', () =>
-      onBookmark(statusView, logView, commitView, opLogView)
+    vscode.commands.registerCommand('edamajutsu.bookmark.create', () =>
+      onBookmarkCreate(statusView, logView, commitView, opLogView)
+    ),
+    vscode.commands.registerCommand('edamajutsu.bookmark.set', () =>
+      onBookmarkSet(statusView, logView, commitView, opLogView)
     ),
     vscode.commands.registerCommand('edamajutsu.squash', () =>
       runMutation('jj squash', statusView, logView, commitView, opLogView, (d) =>
@@ -76,7 +79,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
-async function onBookmark(
+async function onBookmarkCreate(
   status: StatusView,
   log: LogView,
   commit: CommitDetailView,
@@ -101,6 +104,56 @@ async function onBookmark(
     commit,
     opLog,
     (d) => d.createBookmark(name.trim(), changeId)
+  );
+}
+
+async function onBookmarkSet(
+  status: StatusView,
+  log: LogView,
+  commit: CommitDetailView,
+  opLog: OpLogView
+): Promise<void> {
+  const changeId = activeChangeId(status, log, commit);
+  if (!changeId) {
+    vscode.window.showInformationMessage('edamajutsu: no change selected for the bookmark.');
+    return;
+  }
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
+  if (!repo) {
+    vscode.window.showWarningMessage('edamajutsu: no jj repository in the current workspace.');
+    return;
+  }
+
+  let bookmarks: string[];
+  try {
+    bookmarks = await new JjDriver({ repoRoot: repo.root }).listBookmarks();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`edamajutsu: listing bookmarks failed — ${message}`);
+    return;
+  }
+
+  if (bookmarks.length === 0) {
+    vscode.window.showInformationMessage(
+      'edamajutsu: no bookmarks to move. Use `b c` to create one.'
+    );
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(bookmarks, {
+    placeHolder: `Move which bookmark to ${changeId.slice(0, 8)}?`
+  });
+  if (!picked) {
+    return;
+  }
+  await runMutation(
+    `jj bookmark set ${picked}`,
+    status,
+    log,
+    commit,
+    opLog,
+    (d) => d.setBookmark(picked, changeId)
   );
 }
 
@@ -164,7 +217,7 @@ async function onAbandon(
   }
   const short = changeId.slice(0, 8);
   const choice = await vscode.window.showWarningMessage(
-    `Abandon change ${short}? (Recoverable via \`u\`.)`,
+    `Abandon change ${short}?`,
     { modal: true },
     'Abandon'
   );

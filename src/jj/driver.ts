@@ -161,8 +161,7 @@ export class JjDriver {
     await this.runChecked(['describe', '-m', message], { snapshot: true });
   }
 
-  // Abandons the given change (its descendants are rebased onto its parents).
-  // Recoverable via `undo()`.
+  // Abandons the given change. Its descendants are rebased onto its parents.
   async abandon(revset: string): Promise<void> {
     await this.runChecked(['abandon', revset], { snapshot: true });
   }
@@ -174,10 +173,35 @@ export class JjDriver {
   }
 
   // Creates a new bookmark at the given revset. Errors if a bookmark with
-  // that name already exists — moving an existing bookmark needs a different
-  // verb so the user can't typo a name and silently overwrite something.
+  // that name already exists — moving an existing bookmark goes through
+  // `setBookmark`, paired with a UX that picks from a known list so we can't
+  // typo a name and silently overwrite something.
   async createBookmark(name: string, revset: string): Promise<void> {
     await this.runChecked(['bookmark', 'create', name, '-r', revset], { snapshot: true });
+  }
+
+  // Moves the bookmark to the given revset. Pairs with `listBookmarks` so
+  // callers never invoke this with a name that wasn't already in the repo.
+  // `--allow-backwards` lets the bookmark move to an ancestor of its current
+  // target.
+  async setBookmark(name: string, revset: string): Promise<void> {
+    await this.runChecked(
+      ['bookmark', 'set', name, '-r', revset, '--allow-backwards'],
+      { snapshot: true }
+    );
+  }
+
+  // Lists the names of local bookmarks currently present in the repo. Remote-
+  // tracking entries (`name@remote`) are filtered out.
+  async listBookmarks(): Promise<string[]> {
+    const result = await this.runChecked(
+      ['bookmark', 'list', '-T', 'if(remote, "", name ++ "\\n")'],
+      {}
+    );
+    return result.stdout
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((s) => s !== '');
   }
 
   // Squashes @ into @-: all changes from @ are moved into @-, then @ is
