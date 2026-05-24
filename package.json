@@ -84,6 +84,10 @@
         "title": "Edamajutsu: Describe Working Copy"
       },
       {
+        "command": "edamajutsu.describeMultiline",
+        "title": "Edamajutsu: Describe Working Copy (multi-line editor)"
+      },
+      {
         "command": "edamajutsu.abandon",
         "title": "Edamajutsu: Abandon Change at Point"
       },
@@ -180,6 +184,10 @@
         },
         {
           "command": "edamajutsu.describe",
+          "when": "editorLangId == edamajutsu"
+        },
+        {
+          "command": "edamajutsu.describeMultiline",
           "when": "editorLangId == edamajutsu"
         },
         {
@@ -294,6 +302,11 @@
       {
         "command": "edamajutsu.describe",
         "key": "c",
+        "when": "editorTextFocus && editorLangId == edamajutsu"
+      },
+      {
+        "command": "edamajutsu.describeMultiline",
+        "key": "shift+c",
         "when": "editorTextFocus && editorLangId == edamajutsu"
       },
       {

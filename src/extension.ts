@@ -5,6 +5,7 @@ import { DecorationManager } from './render/decorationManager';
 import { createDecorationTypes } from './render/decorations';
 import { showMenu } from './ui/menu';
 import { COMMIT_DETAIL_URI, CommitDetailView } from './views/commitDetail';
+import { CommitMessageEditor, COMMIT_MESSAGE_SCHEME } from './views/commitMessageEditor';
 import { EdamajutsuContentProvider } from './views/contentProvider';
 import { EdamajutsuFoldingProvider } from './views/folding';
 import { LogView } from './views/log';
@@ -19,7 +20,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const logView = new LogView();
   const commitView = new CommitDetailView();
   const opLogView = new OpLogView();
-  const ctx = new AppContext(statusView, logView, commitView, opLogView);
+  const commitMessageEditor = new CommitMessageEditor();
+  const ctx = new AppContext(statusView, logView, commitView, opLogView, commitMessageEditor);
 
   const contentProvider = new EdamajutsuContentProvider(
     statusView,
@@ -43,6 +45,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(EDAMAJUTSU_SCHEME, contentProvider),
+    vscode.workspace.registerFileSystemProvider(COMMIT_MESSAGE_SCHEME, commitMessageEditor, {
+      isCaseSensitive: true
+    }),
     vscode.languages.registerFoldingRangeProvider(
       foldingSelector,
       new EdamajutsuFoldingProvider(statusView, commitView)
@@ -58,6 +63,7 @@ export function activate(context: vscode.ExtensionContext): void {
     register('edamajutsu.redo', () => ctx.redo()),
     register('edamajutsu.new', () => ctx.newChange()),
     register('edamajutsu.describe', () => ctx.describe()),
+    register('edamajutsu.describeMultiline', () => ctx.describeMultiline()),
     register('edamajutsu.abandon', () => ctx.abandon()),
     register('edamajutsu.edit', () => ctx.edit()),
     register('edamajutsu.duplicate', () => ctx.duplicate()),

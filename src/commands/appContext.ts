@@ -4,6 +4,8 @@ import { JjDriver } from '../jj/driver';
 import { findJjRepo, JjRepo } from '../jj/repo';
 import { ChangeId } from '../model/change';
 import { CommitDetailView, COMMIT_DETAIL_URI } from '../views/commitDetail';
+import { buildInitialBuffer } from '../views/commitMessageBuffer';
+import { CommitMessageEditor } from '../views/commitMessageEditor';
 import { LogView, LOG_URI, openLog } from '../views/log';
 import { OpLogView, OP_LOG_URI, openOpLog } from '../views/opLog';
 import { StatusView, STATUS_URI, openStatus } from '../views/status';
@@ -23,7 +25,8 @@ export class AppContext {
     private readonly status: StatusView,
     private readonly log: LogView,
     private readonly commit: CommitDetailView,
-    private readonly opLog: OpLogView
+    private readonly opLog: OpLogView,
+    private readonly commitMessageEditor: CommitMessageEditor
   ) {}
 
   // ---- View-opening commands ----
@@ -147,7 +150,7 @@ export class AppContext {
     }
     // Pre-fill with the current first line so it's an edit, not a rewrite.
     // Multi-line descriptions get truncated to the first line here; users
-    // wanting a multi-line edit need a richer editor flow (TODO).
+    // wanting a multi-line edit should use `C` (describeMultiline).
     let current = '';
     try {
       const [head] = await new JjDriver({ repoRoot: repo.root }).log({ revset: '@', limit: 1 });
@@ -164,6 +167,39 @@ export class AppContext {
       return;
     }
     await this.runMutation('jj describe', (d) => d.describe(message));
+  }
+
+  // Multi-line counterpart to `describe` (magit's `C`). Opens a transient
+  // virtual buffer prepopulated with @'s current full description; the
+  // editor's save triggers submission. Cancel = close the buffer without
+  // saving. See views/commitMessageEditor.ts for the FileSystemProvider
+  // plumbing.
+  async describeMultiline(): Promise<void> {
+    const repo = this.resolveRepo();
+    if (!repo) {
+      return;
+    }
+    let current = '';
+    try {
+      const [head] = await new JjDriver({ repoRoot: repo.root }).log({ revset: '@', limit: 1 });
+      current = head?.description ?? '';
+    } catch {
+      // Fall through with empty default — submit will surface the real error.
+    }
+    await this.commitMessageEditor.open(buildInitialBuffer(current), async (message) => {
+      // We can't use runMutation here because it swallows errors on
+      // failure. The submit callback must rethrow so the FileSystemProvider
+      // leaves the buffer open (and VSCode shows its native "Could not
+      // save file: <jj error>" toast); otherwise a transient jj failure
+      // would discard the user's typed message.
+      const statusMessage = vscode.window.setStatusBarMessage('Running jj describe…');
+      try {
+        await new JjDriver({ repoRoot: repo.root }).describe(message);
+      } finally {
+        statusMessage.dispose();
+      }
+      await this.refreshOpenViews();
+    });
   }
 
   async abandon(): Promise<void> {
