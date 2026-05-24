@@ -133,7 +133,7 @@
       },
       {
         "command": "edamajutsu.help",
-        "title": "Edamajutsu: Help (browse commands)"
+        "title": "Edamajutsu: Help"
       },
       {
         "command": "edamajutsu.rebase",

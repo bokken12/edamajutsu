@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { CommitDetailView, COMMIT_DETAIL_URI } from './commitDetail';
+import { HelpView, HELP_URI } from './help';
 import { LogView, LOG_URI } from './log';
 import { OpLogView, OP_LOG_URI } from './opLog';
 import { StatusView, STATUS_URI } from './status';
@@ -15,12 +16,14 @@ export class EdamajutsuContentProvider implements vscode.TextDocumentContentProv
     private readonly status: StatusView,
     private readonly log: LogView,
     private readonly commit: CommitDetailView,
-    private readonly opLog: OpLogView
+    private readonly opLog: OpLogView,
+    private readonly help: HelpView
   ) {
     status.onDidChange((uri) => this.emitter.fire(uri));
     log.onDidChange((uri) => this.emitter.fire(uri));
     commit.onDidChange((uri) => this.emitter.fire(uri));
     opLog.onDidChange((uri) => this.emitter.fire(uri));
+    help.onDidChange((uri) => this.emitter.fire(uri));
   }
 
   provideTextDocumentContent(uri: vscode.Uri): string {
@@ -36,6 +39,9 @@ export class EdamajutsuContentProvider implements vscode.TextDocumentContentProv
     }
     if (key === OP_LOG_URI.toString()) {
       return this.opLog.provideTextDocumentContent(uri);
+    }
+    if (key === HELP_URI.toString()) {
+      return this.help.provideTextDocumentContent(uri);
     }
     // We only open URIs we control; anything else is a programmer error.
     throw new Error(`unrecognized edamajutsu URI: ${key}`);
