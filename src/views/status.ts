@@ -6,13 +6,14 @@ import { FileDiff } from '../jj/parse';
 import { JjRepo, findJjRepo } from '../jj/repo';
 import { Change } from '../model/change';
 import { FileChangeKind } from '../model/fileChange';
-import { DecoratedDocBuilder, DecoratedLine, DecorationRanges, LineBuilder } from '../render/decoratedText';
+import { DecoratedLine, DecorationRanges, LineBuilder } from '../render/decoratedText';
 import { DecorationKey } from '../render/decorations';
 import { fileKindGlyph } from '../render/fileKind';
+import { BlankLineView, RenderContext, TextLineView, View } from './viewTree';
 
 export const STATUS_URI = vscode.Uri.from({ scheme: 'edamajutsu', path: 'status.edamajutsu' });
 
-type StatusData = {
+export type StatusData = {
   readonly workingCopy: Change;
   readonly parent: Change | undefined;
   // Each entry carries both its file kind (for the path-line decoration) and
@@ -22,21 +23,24 @@ type StatusData = {
   readonly files: ReadonlyArray<FileDiff>;
 };
 
-type Rendered = {
+export type Rendered = {
   readonly text: string;
-  readonly foldingRanges: ReadonlyArray<vscode.FoldingRange>;
   // For each line index, the Change that line "belongs to" (used by `RET`
   // to drill into the commit detail). Undefined for header / blank / non-
   // change rows.
   readonly lineToChange: ReadonlyArray<Change | undefined>;
   readonly decorations: DecorationRanges;
+  // The root view used to render `text`. Kept around so the toggle command
+  // can look up the foldable view at a given line and mutate it in place
+  // before re-rendering on the next refresh.
+  readonly root: View;
 };
 
 const INITIAL: Rendered = {
   text: 'Loading...',
-  foldingRanges: [],
   lineToChange: [],
-  decorations: new Map()
+  decorations: new Map(),
+  root: new BlankLineView()
 };
 
 export class StatusView implements vscode.TextDocumentContentProvider {
@@ -50,8 +54,11 @@ export class StatusView implements vscode.TextDocumentContentProvider {
     return this.rendered.text;
   }
 
+  // Status view manages folding via the view tree, not VSCode folding
+  // ranges — collapsed content is literally absent from the document text,
+  // so there is nothing for VSCode to fold.
   getFoldingRanges(): ReadonlyArray<vscode.FoldingRange> {
-    return this.rendered.foldingRanges;
+    return [];
   }
 
   getDecorations(): DecorationRanges {
@@ -60,6 +67,21 @@ export class StatusView implements vscode.TextDocumentContentProvider {
 
   changeAtLine(line: number): Change | undefined {
     return this.rendered.lineToChange[line];
+  }
+
+  // Toggle fold state of the deepest foldable view containing `line`, then
+  // re-render. Returns true if a view was toggled. Callers use the return
+  // value to decide whether to fall back to VSCode's editor.toggleFold for
+  // lines outside any foldable view.
+  toggleFoldAtLine(line: number): boolean {
+    const target = this.rendered.root.foldableAt(line);
+    if (!target) {
+      return false;
+    }
+    target.folded = !target.folded;
+    this.rendered = renderRoot(this.rendered.root);
+    this.onDidChangeEmitter.fire(STATUS_URI);
+    return true;
   }
 
   async refresh(snapshot: boolean): Promise<void> {
@@ -76,13 +98,13 @@ export class StatusView implements vscode.TextDocumentContentProvider {
     const folder = vscode.workspace.workspaceFolders?.[0];
     const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
     if (!repo) {
-      return plainRendered(renderNoRepo());
+      return renderRoot(buildTextRoot(renderNoRepo()));
     }
     try {
       const data = await fetchStatus(new JjDriver({ repoRoot: repo.root }), snapshot);
       return renderStatus(repo, data);
     } catch (err) {
-      return plainRendered(renderError(repo, err));
+      return renderRoot(buildTextRoot(renderError(repo, err)));
     }
   }
 }
@@ -112,16 +134,6 @@ async function fetchStatus(driver: JjDriver, snapshot: boolean): Promise<StatusD
   return { workingCopy, parent: parentRecords[0], files };
 }
 
-function plainRendered(text: string): Rendered {
-  const lines = text.split('\n');
-  return {
-    text,
-    foldingRanges: [],
-    lineToChange: lines.map(() => undefined),
-    decorations: new Map()
-  };
-}
-
 function renderNoRepo(): string {
   return [
     'edamajutsu: status',
@@ -149,87 +161,156 @@ function renderError(repo: JjRepo, err: unknown): string {
   ].join('\n');
 }
 
-function renderStatus(repo: JjRepo, data: StatusData): Rendered {
-  const out = new StatusBuilder();
-  out.plain('edamajutsu: status');
-  out.plain('');
-  out.plain(`Repository: ${repo.root}`);
-  out.plain('');
+// Pure rendering entry point — builds a fresh root view tree from the data
+// and immediately renders it. Re-exported for tests so they can render
+// without spinning up a `StatusView` (which needs vscode workspace state).
+export function renderStatus(repo: JjRepo, data: StatusData): Rendered {
+  return renderRoot(buildStatusRoot(repo, data));
+}
 
-  out.section(data.workingCopy, () => renderChangeSection('Working copy:', data.workingCopy));
+// Render `root` into a fresh document. Called from refresh() and from the
+// toggle-fold path (where the tree is reused but its fold flags changed).
+export function renderRoot(root: View): Rendered {
+  const ctx = new RenderContext();
+  root.render(ctx);
+  return {
+    text: ctx.text(),
+    lineToChange: ctx.changes(),
+    decorations: ctx.decorations(),
+    root
+  };
+}
+
+export function buildStatusRoot(repo: JjRepo, data: StatusData): View {
+  const root = new StatusDocumentView();
+  root.subViews.push(new TextLineView(plainLine('edamajutsu: status')));
+  root.subViews.push(new BlankLineView());
+  root.subViews.push(new TextLineView(plainLine(`Repository: ${repo.root}`)));
+  root.subViews.push(new BlankLineView());
+
+  root.subViews.push(new ChangeSummaryView('Working copy:', data.workingCopy));
+  root.subViews.push(new BlankLineView());
+
   if (data.parent && !isRootChange(data.parent)) {
-    out.section(data.parent, () => renderChangeSection('Parent commit:', data.parent!));
+    root.subViews.push(new ChangeSummaryView('Parent commit:', data.parent));
+    root.subViews.push(new BlankLineView());
   }
+
   if (data.files.length > 0) {
-    // Files belong to the working copy — pressing RET on a file row drills
-    // into @'s commit detail. Inside the section, each file gets its own
-    // fold range covering the file path line + its inline diff body so Tab
-    // on a file row collapses just that file rather than the whole section.
-    renderFilesSection(out, data.workingCopy, data.files);
+    root.subViews.push(new StatusFilesSectionView(data.workingCopy, data.files));
+    root.subViews.push(new BlankLineView());
   }
-  return out.build();
+  return root;
 }
 
-// Wraps DecoratedDocBuilder with the status-specific bookkeeping: folding
-// ranges per section and the line-to-change map for `RET` navigation.
-class StatusBuilder {
-  private readonly doc = new DecoratedDocBuilder();
-  private readonly foldingRanges: vscode.FoldingRange[] = [];
-  private readonly lineToChange: Array<Change | undefined> = [];
-
-  // Plain un-decorated text. `change` defaults to undefined — pass one to
-  // attach the line to a change for RET navigation (e.g. the diff bodies
-  // under each file belong to the working copy).
-  plain(text: string, change?: Change): void {
-    this.doc.pushPlain(text);
-    this.lineToChange.push(change);
+// Wraps a fixed string (e.g. the error / no-repo path) in a minimal view
+// tree so renderRoot can produce the standard Rendered shape.
+function buildTextRoot(text: string): View {
+  const root = new StatusDocumentView();
+  for (const line of text.split('\n')) {
+    root.subViews.push(new TextLineView(plainLine(line)));
   }
+  return root;
+}
 
-  // Decorated line associated with `change` for RET navigation. Used by
-  // callers that need to interleave their own folding ranges with the lines
-  // (the standard `section()` helper doesn't expose intermediate line
-  // indices).
-  push(line: DecoratedLine, change: Change | undefined): void {
-    this.doc.push(line);
-    this.lineToChange.push(change);
-  }
+function plainLine(text: string): DecoratedLine {
+  return new LineBuilder().plain(text).build();
+}
 
-  // Records a fold range from `start` (inclusive) to `end` (inclusive).
-  // No-op if the range would cover one line or less — VSCode refuses to
-  // collapse a fold that doesn't span at least one additional line.
-  fold(start: number, end: number): void {
-    if (end > start) {
-      this.foldingRanges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
-    }
-  }
-
-  currentLine(): number {
-    return this.doc.currentLine();
-  }
-
-  section(change: Change, produce: () => DecoratedLine[]): void {
-    const start = this.doc.currentLine();
-    const body = produce();
-    for (const line of body) {
-      this.doc.push(line);
-      this.lineToChange.push(change);
-    }
-    this.fold(start, this.doc.currentLine() - 1);
-    this.doc.pushPlain('');
-    this.lineToChange.push(undefined);
-  }
-
-  build(): Rendered {
-    return {
-      text: this.doc.text(),
-      foldingRanges: this.foldingRanges,
-      lineToChange: this.lineToChange,
-      decorations: this.doc.decorations()
-    };
+// The root view for a status document. Not foldable itself.
+class StatusDocumentView extends View {
+  override get id(): string | undefined {
+    return 'status:root';
   }
 }
 
-function renderChangeSection(header: string, change: Change): DecoratedLine[] {
+// A change summary block: header line + description + author. Foldable so
+// users can collapse the parent commit's details if they want, but stays
+// expanded by default since the description is the useful bit.
+class ChangeSummaryView extends View {
+  override isFoldable = true;
+  override foldedByDefault = false;
+
+  constructor(
+    private readonly label: string,
+    private readonly _change: Change
+  ) {
+    super();
+    this.subViews = [
+      new TextLineView(buildChangeHeaderLine(label, _change), _change),
+      new TextLineView(
+        new LineBuilder()
+          .plain('  ')
+          .plain(_change.descriptionFirstLine || '(no description set)')
+          .build(),
+        _change
+      ),
+      new TextLineView(
+        new LineBuilder()
+          .plain(`  ${_change.authorName} <${_change.authorEmail}>`)
+          .build(),
+        _change
+      )
+    ];
+  }
+
+  override get id(): string {
+    // Keyed by the label (Working copy / Parent commit) so the user's fold
+    // choice rides through a refresh that may bring a different change in
+    // under the same label.
+    return `status:changeSummary:${this.label}`;
+  }
+
+  override get change(): Change {
+    return this._change;
+  }
+}
+
+// "Working copy changes (N):" section. Foldable; foldedByDefault stays
+// false so the section header expands to its file list on first view.
+class StatusFilesSectionView extends View {
+  override isFoldable = true;
+  override foldedByDefault = false;
+
+  constructor(workingCopy: Change, files: ReadonlyArray<FileDiff>) {
+    super();
+    this.subViews = [
+      new TextLineView(
+        new LineBuilder()
+          .dec('sectionHeader', `Working copy changes (${files.length}):`)
+          .build(),
+        workingCopy
+      ),
+      ...files.map((file) => new FileView(workingCopy, file))
+    ];
+  }
+
+  override get id(): string {
+    return 'status:workingCopyChanges';
+  }
+}
+
+// One file within "Working copy changes": the path-line header + the diff
+// body. Foldable and foldedByDefault — the user starts seeing just the
+// path; pressing Tab expands the diff.
+class FileView extends View {
+  override isFoldable = true;
+  override foldedByDefault = true;
+
+  constructor(workingCopy: Change, private readonly file: FileDiff) {
+    super();
+    this.subViews = [
+      new TextLineView(buildFilePathLine(file), workingCopy),
+      ...file.body.map((diffLine) => new TextLineView(plainLine(diffLine), workingCopy))
+    ];
+  }
+
+  override get id(): string {
+    return `status:file:${this.file.path}`;
+  }
+}
+
+function buildChangeHeaderLine(header: string, change: Change): DecoratedLine {
   const headerLine = new LineBuilder()
     .dec('sectionHeader', header)
     .plain(' ')
@@ -246,44 +327,15 @@ function renderChangeSection(header: string, change: Change): DecoratedLine[] {
   if (change.isEmpty) {
     headerLine.dec('empty', ' (empty)');
   }
-
-  return [
-    headerLine.build(),
-    new LineBuilder()
-      .plain('  ')
-      .plain(change.descriptionFirstLine || '(no description set)')
-      .build(),
-    new LineBuilder().plain(`  ${change.authorName} <${change.authorEmail}>`).build()
-  ];
+  return headerLine.build();
 }
 
-function renderFilesSection(
-  out: StatusBuilder,
-  workingCopy: Change,
-  files: ReadonlyArray<FileDiff>
-): void {
-  const sectionStart = out.currentLine();
-  out.push(
-    new LineBuilder().dec('sectionHeader', `Working copy changes (${files.length}):`).build(),
-    workingCopy
-  );
-  for (const file of files) {
-    const fileStart = out.currentLine();
-    out.push(
-      new LineBuilder()
-        .plain('  ')
-        .dec(fileKindDecoration(file.kind), fileKindGlyph(file.kind))
-        .plain(` ${file.path}`)
-        .build(),
-      workingCopy
-    );
-    for (const diffLine of file.body) {
-      out.plain(diffLine, workingCopy);
-    }
-    out.fold(fileStart, out.currentLine() - 1);
-  }
-  out.fold(sectionStart, out.currentLine() - 1);
-  out.plain('');
+function buildFilePathLine(file: FileDiff): DecoratedLine {
+  return new LineBuilder()
+    .plain('  ')
+    .dec(fileKindDecoration(file.kind), fileKindGlyph(file.kind))
+    .plain(` ${file.path}`)
+    .build();
 }
 
 function fileKindDecoration(kind: FileChangeKind): DecorationKey {
