@@ -7,7 +7,6 @@ import { showMenu } from './ui/menu';
 import { bookmarkMenu, gitMenu } from './ui/menus';
 import { COMMIT_DETAIL_URI, CommitDetailView } from './views/commitDetail';
 import { EdamajutsuContentProvider } from './views/contentProvider';
-import { EdamajutsuFoldingProvider } from './views/folding';
 import { HelpView } from './views/help';
 import { LogView } from './views/log';
 import { OpLogView } from './views/opLog';
@@ -31,10 +30,6 @@ export function activate(context: vscode.ExtensionContext): void {
     opLogView,
     helpView
   );
-  const foldingSelector: vscode.DocumentSelector = [
-    { scheme: EDAMAJUTSU_SCHEME, language: EDAMAJUTSU_LANGUAGE, pattern: STATUS_URI.path },
-    { scheme: EDAMAJUTSU_SCHEME, language: EDAMAJUTSU_LANGUAGE, pattern: COMMIT_DETAIL_URI.path }
-  ];
 
   const decorationTypes = createDecorationTypes();
   context.subscriptions.push(...Object.values(decorationTypes));
@@ -51,10 +46,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(EDAMAJUTSU_SCHEME, contentProvider),
-    vscode.languages.registerFoldingRangeProvider(
-      foldingSelector,
-      new EdamajutsuFoldingProvider(statusView, commitView)
-    ),
     register('edamajutsu.openStatus', () => ctx.openStatus()),
     register('edamajutsu.openLog', () => ctx.openLog()),
     register('edamajutsu.openOpLog', () => ctx.openOpLog()),
@@ -82,8 +73,22 @@ export function activate(context: vscode.ExtensionContext): void {
     register('edamajutsu.git.fetch', () => ctx.gitFetch()),
     register('edamajutsu.bookmark.menu', () => showMenu(bookmarkMenu)),
     register('edamajutsu.git.menu', () => showMenu(gitMenu)),
-    register('edamajutsu.toggleFold', async () => {
-      await vscode.commands.executeCommand('editor.toggleFold');
+    register('edamajutsu.toggleFold', () => {
+      // Every edamajutsu view that has folds uses a model-based fold: folded
+      // content isn't in the document text, so VSCode's built-in
+      // `editor.toggleFold` has nothing to act on. Dispatch on the active
+      // document's URI; views without folds (log/opLog/help) get nothing.
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      const uri = editor.document.uri.toString();
+      const line = editor.selection.active.line;
+      if (uri === STATUS_URI.toString()) {
+        statusView.toggleFoldAtLine(line);
+      } else if (uri === COMMIT_DETAIL_URI.toString()) {
+        commitView.toggleFoldAtLine(line);
+      }
     })
   );
 }
