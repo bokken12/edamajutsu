@@ -25,6 +25,10 @@ type StatusData = {
 type Rendered = {
   readonly text: string;
   readonly foldingRanges: ReadonlyArray<vscode.FoldingRange>;
+  // Start lines of folds that should be collapsed when the view is first
+  // shown — the per-file diff bodies under "Working copy changes". See
+  // `collapseDefaultFolds` for how this list gets applied.
+  readonly defaultCollapsedLines: ReadonlyArray<number>;
   // For each line index, the Change that line "belongs to" (used by `RET`
   // to drill into the commit detail). Undefined for header / blank / non-
   // change rows.
@@ -35,6 +39,7 @@ type Rendered = {
 const INITIAL: Rendered = {
   text: 'Loading...',
   foldingRanges: [],
+  defaultCollapsedLines: [],
   lineToChange: [],
   decorations: new Map()
 };
@@ -52,6 +57,10 @@ export class StatusView implements vscode.TextDocumentContentProvider {
 
   getFoldingRanges(): ReadonlyArray<vscode.FoldingRange> {
     return this.rendered.foldingRanges;
+  }
+
+  getDefaultCollapsedLines(): ReadonlyArray<number> {
+    return this.rendered.defaultCollapsedLines;
   }
 
   getDecorations(): DecorationRanges {
@@ -91,6 +100,18 @@ export async function openStatus(view: StatusView): Promise<void> {
   await view.refresh(false);
   const doc = await vscode.workspace.openTextDocument(STATUS_URI);
   await vscode.window.showTextDocument(doc, { preview: false });
+  await collapseDefaultFolds(view);
+}
+
+// VSCode's FoldingRange API has no "start collapsed" bit — instead we drive
+// the fold UI via `editor.fold` after the document is visible. Its
+// `selectionLines` arg folds the innermost range containing each given line.
+async function collapseDefaultFolds(view: StatusView): Promise<void> {
+  const lines = view.getDefaultCollapsedLines();
+  if (lines.length === 0) {
+    return;
+  }
+  await vscode.commands.executeCommand('editor.fold', { selectionLines: [...lines] });
 }
 
 async function fetchStatus(driver: JjDriver, snapshot: boolean): Promise<StatusData> {
@@ -117,6 +138,7 @@ function plainRendered(text: string): Rendered {
   return {
     text,
     foldingRanges: [],
+    defaultCollapsedLines: [],
     lineToChange: lines.map(() => undefined),
     decorations: new Map()
   };
@@ -175,6 +197,7 @@ function renderStatus(repo: JjRepo, data: StatusData): Rendered {
 class StatusBuilder {
   private readonly doc = new DecoratedDocBuilder();
   private readonly foldingRanges: vscode.FoldingRange[] = [];
+  private readonly defaultCollapsedLines: number[] = [];
   private readonly lineToChange: Array<Change | undefined> = [];
 
   // Plain un-decorated text. `change` defaults to undefined — pass one to
@@ -197,9 +220,13 @@ class StatusBuilder {
   // Records a fold range from `start` (inclusive) to `end` (inclusive).
   // No-op if the range would cover one line or less — VSCode refuses to
   // collapse a fold that doesn't span at least one additional line.
-  fold(start: number, end: number): void {
+  // `collapsedByDefault` flags this fold to start collapsed on initial open.
+  fold(start: number, end: number, collapsedByDefault = false): void {
     if (end > start) {
       this.foldingRanges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
+      if (collapsedByDefault) {
+        this.defaultCollapsedLines.push(start);
+      }
     }
   }
 
@@ -223,6 +250,7 @@ class StatusBuilder {
     return {
       text: this.doc.text(),
       foldingRanges: this.foldingRanges,
+      defaultCollapsedLines: this.defaultCollapsedLines,
       lineToChange: this.lineToChange,
       decorations: this.doc.decorations()
     };
@@ -280,7 +308,7 @@ function renderFilesSection(
     for (const diffLine of file.body) {
       out.plain(diffLine, workingCopy);
     }
-    out.fold(fileStart, out.currentLine() - 1);
+    out.fold(fileStart, out.currentLine() - 1, true);
   }
   out.fold(sectionStart, out.currentLine() - 1);
   out.plain('');
