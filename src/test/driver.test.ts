@@ -237,6 +237,136 @@ test('diffSummary reports working-copy changes by path', async () => {
   `);
 });
 
+test('revisionDiff merges file kinds with per-file diff bodies', async () => {
+  const root = buildFixtureRepo();
+  // Fixture leaves b.txt added on top of @; add a modify so we exercise
+  // multiple kinds in one go.
+  fs.writeFileSync(path.join(root, 'a.txt'), 'one updated\n');
+
+  const driver = makeDriver(root);
+  const files = await driver.revisionDiff({ revset: '@', snapshot: true });
+  // jj's per-revset file order isn't documented; sort by path so snapshots
+  // are deterministic.
+  const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
+  expect(sorted).toMatchInlineSnapshot(`
+    [
+      {
+        "body": [
+          "diff --git a/a.txt b/a.txt",
+          "index 5626abf0f7..6b1c93397b 100644",
+          "--- a/a.txt",
+          "+++ b/a.txt",
+          "@@ -1,1 +1,1 @@",
+          "-one",
+          "+one updated",
+        ],
+        "kind": "modified",
+        "path": "a.txt",
+      },
+      {
+        "body": [
+          "diff --git a/b.txt b/b.txt",
+          "new file mode 100644",
+          "index 0000000000..f719efd430",
+          "--- /dev/null",
+          "+++ b/b.txt",
+          "@@ -0,0 +1,1 @@",
+          "+two",
+        ],
+        "kind": "added",
+        "path": "b.txt",
+      },
+    ]
+  `);
+});
+
+test('revisionDiff keys renames by destination path', async () => {
+  const root = mkTmp('eda-rename-');
+  jjSync(root, ['git', 'init']);
+  fs.writeFileSync(path.join(root, 'old.txt'), 'hello\n');
+  jjSync(root, ['describe', '-m', 'base']);
+  jjSync(root, ['new']);
+  fs.renameSync(path.join(root, 'old.txt'), path.join(root, 'new.txt'));
+
+  const driver = makeDriver(root);
+  const files = await driver.revisionDiff({ revset: '@', snapshot: true });
+  expect(files).toMatchInlineSnapshot(`
+    [
+      {
+        "body": [
+          "diff --git a/old.txt b/new.txt",
+          "rename from old.txt",
+          "rename to new.txt",
+        ],
+        "kind": "renamed",
+        "path": "new.txt",
+      },
+    ]
+  `);
+});
+
+test('revisionDiff returns empty for a change with no file modifications', async () => {
+  const root = mkTmp('eda-empty-diff-');
+  jjSync(root, ['git', 'init']);
+  const driver = makeDriver(root);
+  const files = await driver.revisionDiff({ revset: '@', snapshot: true });
+  expect(files).toEqual([]);
+});
+
+test('revisionDiff handles binary files', async () => {
+  const root = mkTmp('eda-binary-');
+  jjSync(root, ['git', 'init']);
+  // Git treats a file with NUL bytes as binary and emits a `Binary files
+  // ... differ` body instead of unified +/- lines. A buffer of pure 0xff
+  // is still considered text by git's heuristic.
+  const blob = Buffer.alloc(256);
+  for (let i = 0; i < blob.length; i += 1) blob[i] = i;
+  fs.writeFileSync(path.join(root, 'blob.bin'), blob);
+
+  const driver = makeDriver(root);
+  const files = await driver.revisionDiff({ revset: '@', snapshot: true });
+  expect(files).toMatchInlineSnapshot(`
+    [
+      {
+        "body": [
+          "diff --git a/blob.bin b/blob.bin",
+          "new file mode 100644",
+          "index 0000000000..c86626638e",
+          "Binary files /dev/null and b/blob.bin differ",
+        ],
+        "kind": "added",
+        "path": "blob.bin",
+      },
+    ]
+  `);
+});
+
+test('revisionDiff preserves paths containing spaces', async () => {
+  const root = mkTmp('eda-space-');
+  jjSync(root, ['git', 'init']);
+  fs.writeFileSync(path.join(root, 'has space.txt'), 'content\n');
+
+  const driver = makeDriver(root);
+  const files = await driver.revisionDiff({ revset: '@', snapshot: true });
+  expect(files).toMatchInlineSnapshot(`
+    [
+      {
+        "body": [
+          "diff --git a/has space.txt b/has space.txt",
+          "new file mode 100644",
+          "index 0000000000..d95f3ad14d",
+          "--- /dev/null",
+          "+++ b/has space.txt",
+          "@@ -0,0 +1,1 @@",
+          "+content",
+        ],
+        "kind": "added",
+        "path": "has space.txt",
+      },
+    ]
+  `);
+});
+
 test('opLog returns the meaningful operations from the fixture', async () => {
   const root = buildFixtureRepo();
   const driver = makeDriver(root);

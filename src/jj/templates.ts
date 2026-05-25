@@ -79,6 +79,21 @@ export const LOG_GRAPH_TEMPLATE = '"\\x1d" ++ ' + LOG_TEMPLATE;
 // practice).
 export const DIFF_SUMMARY_TEMPLATE = 'status ++ "\\x1e" ++ path ++ "\\n"';
 
+// Combined template for `jj log -T` — emits the file summary (same shape as
+// DIFF_SUMMARY_TEMPLATE) followed by `\x1f` and then the unified git diff
+// for the commit. One jj invocation produces everything the status view
+// needs to render a file list with per-file diff bodies, replacing a
+// separate `jj diff -T summary` + `jj diff --git` pair. `\x1f` (US) is
+// otherwise unused in our protocol and won't appear in git diff output.
+export const REVISION_DIFF_WITH_SUMMARY_TEMPLATE =
+  'self.diff().files()' +
+  '.map(|f| f.status() ++ "\\x1e" ++ f.path() ++ "\\n").join("")' +
+  ' ++ "\\x1f" ++ self.diff().git()';
+
+// Separates the summary section from the git diff section in
+// REVISION_DIFF_WITH_SUMMARY_TEMPLATE output.
+export const DIFF_SECTION_SEP = '\x1f'; // US
+
 // Op-log fields, same shape as LOG_FIELDS. jj's op log operates on its own
 // type (`Operation`) with its own keywords — id, description, user, time.
 export const OP_LOG_FIELDS = [
