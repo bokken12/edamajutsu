@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 
+import { JjParseError } from '../jj/errors';
 import {
-  JjParseError,
   parseDiffSummary,
   parseGraphLog,
   parseLogRecords,

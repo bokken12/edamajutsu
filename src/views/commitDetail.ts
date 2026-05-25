@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { JjDriver } from '../jj/driver';
+import { formatJjError, JjUnexpectedOutput } from '../jj/errors';
 import { findJjRepo, JjRepo } from '../jj/repo';
 import { Change, ChangeId } from '../model/change';
 import { FileChange } from '../model/fileChange';
@@ -94,7 +95,7 @@ async function fetchDetail(driver: JjDriver, revset: ChangeId, snapshot: boolean
   ]);
   const change = changes[0];
   if (!change) {
-    throw new Error(`change not found: ${revset}`);
+    throw new JjUnexpectedOutput(`change not found: ${revset}`);
   }
   return { change, files, diff };
 }
@@ -109,7 +110,7 @@ function renderNoRepo(): string {
 }
 
 function renderError(repo: JjRepo, err: unknown, changeId: ChangeId): string {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = formatJjError(err);
   return [
     'edamajutsu: commit',
     '',
