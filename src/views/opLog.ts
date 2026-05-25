@@ -1,9 +1,13 @@
+import { Effect } from 'effect';
 import * as vscode from 'vscode';
 
-import { JjDriver } from '../jj/driver';
-import { findJjRepo, JjRepo } from '../jj/repo';
+import { JjDriver, JjDriverLive, jjConfigLayer } from '../jj/driver';
+import { JjDriverError } from '../jj/errors';
+import { JjRepo } from '../jj/repo';
+import { activeRepo } from '../jj/workspace';
 import { Operation } from '../model/operation';
 import { DecorationRanges } from '../render/decoratedText';
+import { formatDriverError } from './status';
 
 export const OP_LOG_URI = vscode.Uri.from({
   scheme: 'edamajutsu',
@@ -39,26 +43,12 @@ export class OpLogView implements vscode.TextDocumentContentProvider {
 
   async refresh(): Promise<void> {
     const token = ++this.refreshToken;
-    const next = await this.produce();
+    const next = await Effect.runPromise(produce());
     if (token !== this.refreshToken) {
       return;
     }
     this.rendered = next;
     this.onDidChangeEmitter.fire(OP_LOG_URI);
-  }
-
-  private async produce(): Promise<Rendered> {
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
-    if (!repo) {
-      return { text: renderNoRepo() };
-    }
-    try {
-      const ops = await new JjDriver({ repoRoot: repo.root }).opLog();
-      return { text: renderOpLog(ops) };
-    } catch (err) {
-      return { text: renderError(repo, err) };
-    }
   }
 }
 
@@ -66,6 +56,25 @@ export async function openOpLog(view: OpLogView): Promise<void> {
   await view.refresh();
   const doc = await vscode.workspace.openTextDocument(OP_LOG_URI);
   await vscode.window.showTextDocument(doc, { preview: false });
+}
+
+function produce(): Effect.Effect<Rendered, never> {
+  return activeRepo.pipe(
+    Effect.flatMap(withDriver),
+    Effect.catchTag('NoRepoError', () => Effect.succeed({ text: renderNoRepo() }))
+  );
+}
+
+function withDriver(repo: JjRepo): Effect.Effect<Rendered, never> {
+  return Effect.gen(function* () {
+    const driver = yield* JjDriver;
+    const ops = yield* driver.opLog();
+    return { text: renderOpLog(ops) };
+  }).pipe(
+    Effect.catchAll((err) => Effect.succeed({ text: renderError(repo, err) })),
+    Effect.provide(JjDriverLive),
+    Effect.provide(jjConfigLayer(repo.root))
+  );
 }
 
 function renderOpLog(ops: ReadonlyArray<Operation>): string {
@@ -92,11 +101,10 @@ function renderNoRepo(): string {
   ].join('\n');
 }
 
-function renderError(repo: JjRepo, err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  const hint = /\bENOENT\b/.test(message)
-    ? ['', 'Hint: the `jj` binary was not found on PATH.']
-    : [];
+function renderError(repo: JjRepo, err: JjDriverError): string {
+  const message = formatDriverError(err);
+  const hint =
+    err._tag === 'JjSpawnError' ? ['', 'Hint: the `jj` binary was not found on PATH.'] : [];
   return [
     'edamajutsu: op log',
     '',

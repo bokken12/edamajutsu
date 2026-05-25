@@ -1,6 +1,7 @@
 import { Change, changeId, commitId } from '../model/change';
 import { FileChange, FileChangeKind } from '../model/fileChange';
 import { Operation, operationId } from '../model/operation';
+import { JjParseError } from './errors';
 import {
   FIELD_SEP,
   FieldKind,
@@ -14,19 +15,14 @@ import {
   RecordOf
 } from './templates';
 
+export { JjParseError };
+
 // One line of a graph-rendered `jj log`. Data rows carry a parsed Change plus
 // the leading graph glyphs jj drew; continuation rows are just graph art (or
 // the `~` elision marker) and have no associated change.
 export type GraphLine =
   | { readonly kind: 'change'; readonly graphPrefix: string; readonly change: Change }
   | { readonly kind: 'graphOnly'; readonly text: string };
-
-export class JjParseError extends Error {
-  constructor(message: string, readonly raw: string) {
-    super(message);
-    this.name = 'JjParseError';
-  }
-}
 
 export function parseLogRecords(stdout: string): Change[] {
   return splitTrailingNewline(stdout).map(parseLogRecord);
@@ -48,10 +44,10 @@ function splitTrailingNewline(stdout: string): string[] {
 function parseRecord<F extends ReadonlyArray<FieldSpec>>(line: string, fields: F): RecordOf<F> {
   const parts = line.split(FIELD_SEP);
   if (parts.length !== fields.length) {
-    throw new JjParseError(
-      `expected ${fields.length} fields in record, got ${parts.length}`,
-      line
-    );
+    throw new JjParseError({
+      message: `expected ${fields.length} fields in record, got ${parts.length}`,
+      raw: line
+    });
   }
   const result: Record<string, unknown> = {};
   fields.forEach((spec, i) => {
@@ -110,13 +106,13 @@ function parseJsonString(raw: string, line: string): string {
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    throw new JjParseError(
-      `failed to JSON-decode field: ${err instanceof Error ? err.message : String(err)}`,
-      line
-    );
+    throw new JjParseError({
+      message: `failed to JSON-decode field: ${err instanceof Error ? err.message : String(err)}`,
+      raw: line
+    });
   }
   if (typeof parsed !== 'string') {
-    throw new JjParseError(`expected JSON string, got ${typeof parsed}`, line);
+    throw new JjParseError({ message: `expected JSON string, got ${typeof parsed}`, raw: line });
   }
   return parsed;
 }
@@ -142,7 +138,7 @@ export function parseDiffSummary(stdout: string): FileChange[] {
 function parseDiffSummaryLine(line: string): FileChange {
   const sep = line.indexOf(FIELD_SEP);
   if (sep < 0) {
-    throw new JjParseError(`missing field separator in diff-summary line`, line);
+    throw new JjParseError({ message: `missing field separator in diff-summary line`, raw: line });
   }
   const status = line.slice(0, sep);
   const path = line.slice(sep + 1);
@@ -162,7 +158,10 @@ function parseFileChangeKind(status: string, line: string): FileChangeKind {
     case 'copied':
       return 'copied';
     default:
-      throw new JjParseError(`unknown file change status ${JSON.stringify(status)}`, line);
+      throw new JjParseError({
+        message: `unknown file change status ${JSON.stringify(status)}`,
+        raw: line
+      });
   }
 }
 
@@ -191,5 +190,8 @@ function parseBool(raw: string, line: string): boolean {
   if (raw === '1') {
     return true;
   }
-  throw new JjParseError(`expected boolean field to be "0" or "1", got ${JSON.stringify(raw)}`, line);
+  throw new JjParseError({
+    message: `expected boolean field to be "0" or "1", got ${JSON.stringify(raw)}`,
+    raw: line
+  });
 }

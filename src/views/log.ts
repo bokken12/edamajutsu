@@ -1,11 +1,15 @@
+import { Effect } from 'effect';
 import * as vscode from 'vscode';
 
-import { JjDriver } from '../jj/driver';
+import { JjDriver, JjDriverLive, jjConfigLayer } from '../jj/driver';
+import { JjDriverError } from '../jj/errors';
 import { GraphLine } from '../jj/parse';
-import { findJjRepo, JjRepo } from '../jj/repo';
+import { JjRepo } from '../jj/repo';
+import { activeRepo } from '../jj/workspace';
 import { Change } from '../model/change';
 import { DecorationRanges } from '../render/decoratedText';
 import { formatChangeOneLine } from '../render/formatChange';
+import { formatDriverError } from './status';
 
 export const LOG_URI = vscode.Uri.from({ scheme: 'edamajutsu', path: 'log.edamajutsu' });
 
@@ -44,26 +48,12 @@ export class LogView implements vscode.TextDocumentContentProvider {
 
   async refresh(snapshot: boolean): Promise<void> {
     const token = ++this.refreshToken;
-    const next = await this.produce(snapshot);
+    const next = await Effect.runPromise(produce(snapshot));
     if (token !== this.refreshToken) {
       return;
     }
     this.rendered = next;
     this.onDidChangeEmitter.fire(LOG_URI);
-  }
-
-  private async produce(snapshot: boolean): Promise<Rendered> {
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
-    if (!repo) {
-      return renderNoRepo();
-    }
-    try {
-      const lines = await new JjDriver({ repoRoot: repo.root }).logGraph({ snapshot });
-      return renderLog(lines);
-    } catch (err) {
-      return renderError(repo, err);
-    }
   }
 }
 
@@ -71,6 +61,27 @@ export async function openLog(view: LogView): Promise<void> {
   await view.refresh(false);
   const doc = await vscode.workspace.openTextDocument(LOG_URI);
   await vscode.window.showTextDocument(doc, { preview: false });
+}
+
+// See status.ts for the produce/withDriver shape and why catchAll runs inside
+// withDriver — same pattern, narrower body.
+function produce(snapshot: boolean): Effect.Effect<Rendered, never> {
+  return activeRepo.pipe(
+    Effect.flatMap((repo) => withDriver(repo, snapshot)),
+    Effect.catchTag('NoRepoError', () => Effect.succeed(renderNoRepo()))
+  );
+}
+
+function withDriver(repo: JjRepo, snapshot: boolean): Effect.Effect<Rendered, never> {
+  return Effect.gen(function* () {
+    const driver = yield* JjDriver;
+    const lines = yield* driver.logGraph({ snapshot });
+    return renderLog(lines);
+  }).pipe(
+    Effect.catchAll((err) => Effect.succeed(renderError(repo, err))),
+    Effect.provide(JjDriverLive),
+    Effect.provide(jjConfigLayer(repo.root))
+  );
 }
 
 function renderLog(lines: ReadonlyArray<GraphLine>): Rendered {
@@ -92,21 +103,17 @@ function renderLog(lines: ReadonlyArray<GraphLine>): Rendered {
 
 function renderNoRepo(): Rendered {
   return {
-    text: [
-      'edamajutsu: log',
-      '',
-      'No jj repository found in the current workspace.',
-      ''
-    ].join('\n'),
+    text: ['edamajutsu: log', '', 'No jj repository found in the current workspace.', ''].join(
+      '\n'
+    ),
     lineToChange: []
   };
 }
 
-function renderError(repo: JjRepo, err: unknown): Rendered {
-  const message = err instanceof Error ? err.message : String(err);
-  const hint = /\bENOENT\b/.test(message)
-    ? ['', 'Hint: the `jj` binary was not found on PATH.']
-    : [];
+function renderError(repo: JjRepo, err: JjDriverError): Rendered {
+  const message = formatDriverError(err);
+  const hint =
+    err._tag === 'JjSpawnError' ? ['', 'Hint: the `jj` binary was not found on PATH.'] : [];
   return {
     text: [
       'edamajutsu: log',

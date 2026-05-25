@@ -390,5 +390,8 @@
     "vitest": "^4.1.7",
     "webpack": "^5.89.0",
     "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "effect": "^3.21.2"
   }
 }

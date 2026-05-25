@@ -1,11 +1,15 @@
+import { Effect } from 'effect';
 import * as vscode from 'vscode';
 
-import { JjDriver } from '../jj/driver';
-import { findJjRepo, JjRepo } from '../jj/repo';
+import { JjDriver, JjDriverLive, JjDriverOps, jjConfigLayer } from '../jj/driver';
+import { JjDriverError, JjUnexpectedOutput } from '../jj/errors';
+import { JjRepo } from '../jj/repo';
+import { activeRepo } from '../jj/workspace';
 import { Change, ChangeId } from '../model/change';
 import { FileChange } from '../model/fileChange';
 import { DecorationRanges } from '../render/decoratedText';
 import { fileKindGlyph } from '../render/fileKind';
+import { formatDriverError } from './status';
 
 export const COMMIT_DETAIL_URI = vscode.Uri.from({
   scheme: 'edamajutsu',
@@ -56,47 +60,74 @@ export class CommitDetailView implements vscode.TextDocumentContentProvider {
 
   async refresh(snapshot: boolean): Promise<void> {
     const token = ++this.refreshToken;
-    const next = await this.produce(snapshot);
+    const next = await Effect.runPromise(produce(this.current, snapshot));
     if (token !== this.refreshToken) {
       return;
     }
     this.rendered = next;
     this.onDidChangeEmitter.fire(COMMIT_DETAIL_URI);
   }
-
-  private async produce(snapshot: boolean): Promise<Rendered> {
-    if (this.current === undefined) {
-      return INITIAL;
-    }
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
-    if (!repo) {
-      return { text: renderNoRepo(), foldingRanges: [] };
-    }
-    try {
-      const detail = await fetchDetail(new JjDriver({ repoRoot: repo.root }), this.current, snapshot);
-      return renderDetail(detail);
-    } catch (err) {
-      return { text: renderError(repo, err, this.current), foldingRanges: [] };
-    }
-  }
 }
 
-async function fetchDetail(driver: JjDriver, revset: ChangeId, snapshot: boolean): Promise<Detail> {
+function produce(
+  current: ChangeId | undefined,
+  snapshot: boolean
+): Effect.Effect<Rendered, never> {
+  if (current === undefined) {
+    return Effect.succeed(INITIAL);
+  }
+  return activeRepo.pipe(
+    Effect.flatMap((repo) => withDriver(repo, current, snapshot)),
+    Effect.catchTag('NoRepoError', () =>
+      Effect.succeed({ text: renderNoRepo(), foldingRanges: [] })
+    )
+  );
+}
+
+function withDriver(
+  repo: JjRepo,
+  current: ChangeId,
+  snapshot: boolean
+): Effect.Effect<Rendered, never> {
+  return Effect.gen(function* () {
+    const driver = yield* JjDriver;
+    const detail = yield* fetchDetail(driver, current, snapshot);
+    return renderDetail(detail);
+  }).pipe(
+    Effect.catchAll((err) =>
+      Effect.succeed({ text: renderError(repo, err, current), foldingRanges: [] })
+    ),
+    Effect.provide(JjDriverLive),
+    Effect.provide(jjConfigLayer(repo.root))
+  );
+}
+
+function fetchDetail(
+  driver: JjDriverOps,
+  revset: ChangeId,
+  snapshot: boolean
+): Effect.Effect<Detail, JjDriverError> {
   // Independent reads of the same revset — fire them in parallel. All three
   // are passed the same `snapshot` flag so they all see the same view of the
   // repo (snapshot acquires a lock; if it happens, only the first command to
   // run actually snapshots, the rest are no-ops).
-  const [changes, files, diff] = await Promise.all([
-    driver.log({ revset, limit: 1, snapshot }),
-    driver.diffSummary({ revset, snapshot }),
-    driver.diffText({ revset, snapshot })
-  ]);
-  const change = changes[0];
-  if (!change) {
-    throw new Error(`change not found: ${revset}`);
-  }
-  return { change, files, diff };
+  return Effect.gen(function* () {
+    const [changes, files, diff] = yield* Effect.all(
+      [
+        driver.log({ revset, limit: 1, snapshot }),
+        driver.diffSummary({ revset, snapshot }),
+        driver.diffText({ revset, snapshot })
+      ],
+      { concurrency: 3 }
+    );
+    const change = changes[0];
+    if (!change) {
+      return yield* Effect.fail(
+        new JjUnexpectedOutput({ message: `change not found: ${revset}` })
+      );
+    }
+    return { change, files, diff };
+  });
 }
 
 function renderNoRepo(): string {
@@ -108,8 +139,8 @@ function renderNoRepo(): string {
   ].join('\n');
 }
 
-function renderError(repo: JjRepo, err: unknown, changeId: ChangeId): string {
-  const message = err instanceof Error ? err.message : String(err);
+function renderError(repo: JjRepo, err: JjDriverError, changeId: ChangeId): string {
+  const message = formatDriverError(err);
   return [
     'edamajutsu: commit',
     '',
@@ -177,12 +208,6 @@ function renderDiff(diff: string, builder: DocBuilder): string[] {
   if (lines.length > 0 && lines[lines.length - 1] === '') {
     lines.pop();
   }
-
-  // baseLine: the line index in the final document where this diff section's
-  // first line will land. DocBuilder.section() pushes lines after a header,
-  // so the first diff line will be at builder.currentLine() + 1 from the
-  // header — but we don't need exact bookkeeping here because we register
-  // ranges relative to the builder by using `markPendingDiffRanges`.
   builder.queueDiffRanges(lines);
   return lines;
 }

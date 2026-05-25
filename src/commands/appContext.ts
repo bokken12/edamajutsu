@@ -1,13 +1,15 @@
+import { Effect, Layer } from 'effect';
 import * as vscode from 'vscode';
 
-import { JjDriver } from '../jj/driver';
-import { findJjRepo, JjRepo } from '../jj/repo';
+import { JjDriver, JjDriverLive, JjDriverOps, jjConfigLayer } from '../jj/driver';
+import { JjDriverError } from '../jj/errors';
+import { activeRepo, NoRepoError } from '../jj/workspace';
 import { ChangeId } from '../model/change';
 import { CommitDetailView, COMMIT_DETAIL_URI } from '../views/commitDetail';
 import { HelpView, openHelp } from '../views/help';
 import { LogView, LOG_URI, openLog } from '../views/log';
 import { OpLogView, OP_LOG_URI, openOpLog } from '../views/opLog';
-import { StatusView, STATUS_URI, openStatus } from '../views/status';
+import { StatusView, STATUS_URI, formatDriverError, openStatus } from '../views/status';
 
 type ChangeQuickPickItem = vscode.QuickPickItem & { changeId: ChangeId };
 
@@ -17,8 +19,10 @@ type ChangeQuickPickItem = vscode.QuickPickItem & { changeId: ChangeId };
 // the user input you need)" — view threading happens once, in the
 // constructor.
 //
-// Internal helpers (`runMutation`, `withPreservedCursor`, `pickBookmark`,
-// etc.) live here too so they share access to the same view set.
+// The methods on this class still return Promise<void> at the VSCode
+// boundary, but internally most of them are built from Effect programs.
+// Effect.runPromise sits at the boundary; everything above it composes via
+// Effect.gen / catchAll / matchEffect with typed driver errors.
 export class AppContext {
   constructor(
     private readonly status: StatusView,
@@ -143,20 +147,14 @@ export class AppContext {
   }
 
   async describe(): Promise<void> {
-    const repo = this.resolveRepo();
-    if (!repo) {
-      return;
-    }
     // Pre-fill with the current first line so it's an edit, not a rewrite.
     // Multi-line descriptions get truncated to the first line here; users
     // wanting a multi-line edit need a richer editor flow (TODO).
-    let current = '';
-    try {
-      const [head] = await new JjDriver({ repoRoot: repo.root }).log({ revset: '@', limit: 1 });
-      current = head?.descriptionFirstLine ?? '';
-    } catch {
-      // Fall through with empty default — describe will surface the real error.
-    }
+    const current = await Effect.runPromise(
+      readActiveDescription().pipe(
+        Effect.catchAll(() => Effect.succeed(''))
+      )
+    );
 
     const message = await vscode.window.showInputBox({
       prompt: 'New description for @',
@@ -192,16 +190,27 @@ export class AppContext {
       vscode.window.showInformationMessage('edamajutsu: no change selected to rebase.');
       return;
     }
-    const repo = this.resolveRepo();
-    if (!repo) {
-      return;
-    }
-    let candidates: ReadonlyArray<{ changeId: ChangeId; descriptionFirstLine: string }>;
-    try {
-      candidates = await new JjDriver({ repoRoot: repo.root }).log({});
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`edamajutsu: listing destinations failed — ${message}`);
+
+    // Build the destination quick-pick by listing every change in the log.
+    // Listing failures use the same popup pattern runMutation uses; on
+    // success, the items become QuickPickItems with the change-id as the
+    // payload.
+    const candidates = await Effect.runPromise(
+      listLogCandidates().pipe(
+        Effect.matchEffect({
+          onFailure: (err) =>
+            Effect.sync(() => {
+              showListingError('listing destinations failed', err);
+              return undefined as ReadonlyArray<{
+                changeId: ChangeId;
+                descriptionFirstLine: string;
+              }> | undefined;
+            }),
+          onSuccess: (xs) => Effect.succeed(xs)
+        })
+      )
+    );
+    if (!candidates) {
       return;
     }
     const items: ChangeQuickPickItem[] = candidates
@@ -312,46 +321,51 @@ export class AppContext {
     return undefined;
   }
 
-  // Resolves the workspace folder's jj repo. Shows a warning and returns
-  // undefined if there isn't one.
-  private resolveRepo(): JjRepo | undefined {
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
-    if (!repo) {
-      vscode.window.showWarningMessage('edamajutsu: no jj repository in the current workspace.');
-      return undefined;
-    }
-    return repo;
-  }
-
-  // Resolves the repo, runs the mutation, surfaces any failure via popup,
-  // then refreshes every open view.
-  private async runMutation(
+  // Runs `action` against a driver scoped to the active workspace's jj repo.
+  // Failure modes:
+  //   - NoRepoError: silently warn (the user opened a non-jj folder)
+  //   - JjDriverError: popup with the failure message
+  // On success, refresh every open view (passively — the mutation already
+  // snapshotted). The status bar message is acquired/released via Effect's
+  // resource scope so it always disposes, even on a non-Effect throw.
+  private runMutation(
     label: string,
-    action: (driver: JjDriver) => Promise<void>
+    action: (driver: JjDriverOps) => Effect.Effect<void, JjDriverError>
   ): Promise<void> {
-    const repo = this.resolveRepo();
-    if (!repo) {
-      return;
-    }
-    const statusMessage = vscode.window.setStatusBarMessage(`Running ${label}…`);
-    try {
-      await action(new JjDriver({ repoRoot: repo.root }));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`edamajutsu: ${label} failed — ${message}`);
-      return;
-    } finally {
-      statusMessage.dispose();
-    }
-    // The mutation already snapshotted; refreshes can stay passive.
-    await this.refreshOpenViews();
+    const refresh = (): Promise<void> => this.refreshOpenViews();
+
+    // The driver layer itself depends on activeRepo, so the program body
+    // doesn't need to resolve the repo separately — yielding JjDriver does
+    // the lookup as a side effect of layer construction.
+    const program = Effect.gen(function* () {
+      const driver = yield* JjDriver;
+      yield* action(driver);
+    }).pipe(Effect.provide(driverLayerFromActiveRepo()));
+
+    const withFeedback = program.pipe(
+      Effect.matchEffect({
+        onFailure: (err) =>
+          Effect.sync(() => {
+            handleMutationFailure(label, err);
+          }),
+        // Refresh on success only — runMutation's old contract.
+        onSuccess: () => Effect.promise(refresh)
+      })
+    );
+
+    const scoped = Effect.acquireUseRelease(
+      Effect.sync(() => vscode.window.setStatusBarMessage(`Running ${label}…`)),
+      () => withFeedback,
+      (statusMessage) => Effect.sync(() => statusMessage.dispose())
+    );
+
+    return Effect.runPromise(scoped);
   }
 
   // Common pattern: get active change, runMutation against it.
   private async onChangeAtCursor(
     verb: string,
-    action: (driver: JjDriver, id: ChangeId) => Promise<void>
+    action: (driver: JjDriverOps, id: ChangeId) => Effect.Effect<void, JjDriverError>
   ): Promise<void> {
     const changeId = this.activeChangeId();
     if (!changeId) {
@@ -365,7 +379,7 @@ export class AppContext {
   private async onBookmarkPick(
     prompt: string,
     label: string,
-    action: (driver: JjDriver, name: string) => Promise<void>
+    action: (driver: JjDriverOps, name: string) => Effect.Effect<void, JjDriverError>
   ): Promise<void> {
     const picked = await this.pickBookmark(prompt);
     if (!picked) {
@@ -378,23 +392,26 @@ export class AppContext {
   // any failure (popups shown), if there are no bookmarks, or if the user
   // cancels.
   private async pickBookmark(prompt: string): Promise<string | undefined> {
-    const repo = this.resolveRepo();
-    if (!repo) {
+    const result = await Effect.runPromise(
+      listBookmarks().pipe(
+        Effect.matchEffect({
+          onFailure: (err) =>
+            Effect.sync(() => {
+              showListingError('listing bookmarks failed', err);
+              return undefined as string[] | undefined;
+            }),
+          onSuccess: (names) => Effect.succeed(names)
+        })
+      )
+    );
+    if (!result) {
       return undefined;
     }
-    let bookmarks: string[];
-    try {
-      bookmarks = await new JjDriver({ repoRoot: repo.root }).listBookmarks();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`edamajutsu: listing bookmarks failed — ${message}`);
-      return undefined;
-    }
-    if (bookmarks.length === 0) {
+    if (result.length === 0) {
       vscode.window.showInformationMessage('edamajutsu: no bookmarks.');
       return undefined;
     }
-    return vscode.window.showQuickPick(bookmarks, { placeHolder: prompt });
+    return vscode.window.showQuickPick(result, { placeHolder: prompt });
   }
 
   // Refreshes every open edamajutsu view, passively. Cursor is preserved.
@@ -461,4 +478,71 @@ export class AppContext {
     editor.selection = new vscode.Selection(position, position);
     editor.revealRange(new vscode.Range(position, position));
   }
+}
+
+// Read-only helpers — top-level so they can compose without touching `this`.
+
+// Reads @'s description first-line for the describe prompt's prefill. The
+// fallback (empty string) lives in the caller so this helper stays narrowly
+// typed; describe surfaces the real failure on the mutation attempt below.
+function readActiveDescription(): Effect.Effect<string, JjDriverError | NoRepoError> {
+  return Effect.gen(function* () {
+    const driver = yield* JjDriver;
+    const [head] = yield* driver.log({ revset: '@', limit: 1 });
+    return head?.descriptionFirstLine ?? '';
+  }).pipe(Effect.provide(driverLayerFromActiveRepo()));
+}
+
+// Lists every change in the configured `revsets.log` revset, used by the
+// rebase destination picker.
+function listLogCandidates(): Effect.Effect<
+  ReadonlyArray<{ changeId: ChangeId; descriptionFirstLine: string }>,
+  JjDriverError | NoRepoError
+> {
+  return Effect.gen(function* () {
+    const driver = yield* JjDriver;
+    return yield* driver.log({});
+  }).pipe(Effect.provide(driverLayerFromActiveRepo()));
+}
+
+function listBookmarks(): Effect.Effect<string[], JjDriverError | NoRepoError> {
+  return Effect.gen(function* () {
+    const driver = yield* JjDriver;
+    return yield* driver.listBookmarks();
+  }).pipe(Effect.provide(driverLayerFromActiveRepo()));
+}
+
+// Builds a fully-resolved driver layer from the active workspace's repo.
+// Layer.unwrapEffect lifts the repo-resolution Effect into the Layer world;
+// the resulting layer's error channel exposes NoRepoError so callers can
+// catch it without a separate guard. JjDriverLive is composed with a config
+// layer built from the repo root we just resolved.
+function driverLayerFromActiveRepo(): Layer.Layer<JjDriver, NoRepoError> {
+  return Layer.unwrapEffect(
+    activeRepo.pipe(
+      Effect.map((repo) => JjDriverLive.pipe(Layer.provide(jjConfigLayer(repo.root))))
+    )
+  );
+}
+
+// Renders a popup describing why a mutation failed. NoRepoError gets a
+// dedicated warning (the user's looking at a non-jj folder); typed driver
+// errors get an error popup; anything else falls back to String(err) — a
+// safety net, since the typed channel covers every reachable path.
+function handleMutationFailure(label: string, err: JjDriverError | NoRepoError): void {
+  if (err._tag === 'NoRepoError') {
+    vscode.window.showWarningMessage('edamajutsu: no jj repository in the current workspace.');
+    return;
+  }
+  vscode.window.showErrorMessage(`edamajutsu: ${label} failed — ${formatDriverError(err)}`);
+}
+
+// Surfacing read-only failures (listing bookmarks / log candidates) uses a
+// uniform formatter so the popup style matches runMutation.
+function showListingError(label: string, err: JjDriverError | NoRepoError): void {
+  if (err._tag === 'NoRepoError') {
+    vscode.window.showWarningMessage('edamajutsu: no jj repository in the current workspace.');
+    return;
+  }
+  vscode.window.showErrorMessage(`edamajutsu: ${label} — ${formatDriverError(err)}`);
 }

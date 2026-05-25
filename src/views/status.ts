@@ -1,7 +1,10 @@
+import { Effect } from 'effect';
 import * as vscode from 'vscode';
 
-import { JjDriver } from '../jj/driver';
-import { JjRepo, findJjRepo } from '../jj/repo';
+import { JjDriver, JjDriverLive, JjDriverOps, jjConfigLayer } from '../jj/driver';
+import { JjDriverError, JjUnexpectedOutput } from '../jj/errors';
+import { JjRepo } from '../jj/repo';
+import { activeRepo } from '../jj/workspace';
 import { Change } from '../model/change';
 import { FileChange, FileChangeKind } from '../model/fileChange';
 import { DecoratedDocBuilder, DecoratedLine, DecorationRanges, LineBuilder } from '../render/decoratedText';
@@ -58,26 +61,12 @@ export class StatusView implements vscode.TextDocumentContentProvider {
 
   async refresh(snapshot: boolean): Promise<void> {
     const token = ++this.refreshToken;
-    const next = await this.produce(snapshot);
+    const next = await Effect.runPromise(produce(snapshot));
     if (token !== this.refreshToken) {
       return;
     }
     this.rendered = next;
     this.onDidChangeEmitter.fire(STATUS_URI);
-  }
-
-  private async produce(snapshot: boolean): Promise<Rendered> {
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
-    if (!repo) {
-      return plainRendered(renderNoRepo());
-    }
-    try {
-      const data = await fetchStatus(new JjDriver({ repoRoot: repo.root }), snapshot);
-      return renderStatus(repo, data);
-    } catch (err) {
-      return plainRendered(renderError(repo, err));
-    }
   }
 }
 
@@ -87,14 +76,53 @@ export async function openStatus(view: StatusView): Promise<void> {
   await vscode.window.showTextDocument(doc, { preview: false });
 }
 
-async function fetchStatus(driver: JjDriver, snapshot: boolean): Promise<StatusData> {
-  const [workingCopy] = await driver.log({ revset: '@', limit: 1, snapshot });
-  if (!workingCopy) {
-    throw new Error('jj log @ returned no records');
-  }
-  const [parent] = await driver.log({ revset: '@-', limit: 1 });
-  const files = await driver.diffSummary();
-  return { workingCopy, parent, files };
+// The view's contract is "show *something* to the user" — never reject. The
+// effect resolves the repo first; if missing, render the placeholder. With
+// a repo in hand, build the driver layer scoped to that repo, fetch the jj
+// state, and render. The catchAll inside `withDriver` flattens every typed
+// driver error (spawn / non-zero / parse / unexpected-empty) into an inline
+// error page so the caller sees Effect<Rendered, never>.
+function produce(snapshot: boolean): Effect.Effect<Rendered, never> {
+  return activeRepo.pipe(
+    Effect.flatMap((repo) => withDriver(repo, snapshot)),
+    Effect.catchTag('NoRepoError', () => Effect.succeed(plainRendered(renderNoRepo())))
+  );
+}
+
+function withDriver(repo: JjRepo, snapshot: boolean): Effect.Effect<Rendered, never> {
+  return Effect.gen(function* () {
+    const driver = yield* JjDriver;
+    const data = yield* fetchStatus(driver, snapshot);
+    return renderStatus(repo, data);
+  }).pipe(
+    Effect.catchAll((err) => Effect.succeed(plainRendered(renderError(repo, err)))),
+    Effect.provide(JjDriverLive),
+    Effect.provide(jjConfigLayer(repo.root))
+  );
+}
+
+function fetchStatus(
+  driver: JjDriverOps,
+  snapshot: boolean
+): Effect.Effect<StatusData, JjDriverError> {
+  return Effect.gen(function* () {
+    const [workingCopy] = yield* driver.log({ revset: '@', limit: 1, snapshot });
+    if (!workingCopy) {
+      return yield* Effect.fail(
+        new JjUnexpectedOutput({ message: 'jj log @ returned no records' })
+      );
+    }
+    // @- runs in parallel with the diff summary — they're independent reads
+    // of the same revset and a refresh of the status view fires both anyway.
+    const [parent, files] = yield* Effect.all(
+      [
+        driver.log({ revset: '@-', limit: 1 }).pipe(Effect.map(([p]) => p)),
+        driver.diffSummary()
+      ],
+      { concurrency: 2 }
+    );
+    return { workingCopy, parent, files };
+  });
 }
 
 function plainRendered(text: string): Rendered {
@@ -117,11 +145,12 @@ function renderNoRepo(): string {
   ].join('\n');
 }
 
-function renderError(repo: JjRepo, err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  const hint = /\bENOENT\b/.test(message)
-    ? ['', 'Hint: the `jj` binary was not found on PATH. Install Jujutsu and re-open this view.']
-    : [];
+function renderError(repo: JjRepo, err: JjDriverError): string {
+  const message = formatDriverError(err);
+  const hint =
+    err._tag === 'JjSpawnError'
+      ? ['', 'Hint: the `jj` binary was not found on PATH. Install Jujutsu and re-open this view.']
+      : [];
   return [
     'edamajutsu: status',
     '',
@@ -133,6 +162,15 @@ function renderError(repo: JjRepo, err: unknown): string {
     ''
   ].join('\n');
 }
+
+// Shared formatter for any typed driver error. The error classes already
+// expose a `.message`; the tag prefix is helpful only when developers are
+// reading the popup, so we elide it from the user-facing string.
+function formatDriverError(err: JjDriverError): string {
+  return 'message' in err && typeof err.message === 'string' ? err.message : String(err);
+}
+
+export { formatDriverError };
 
 function renderStatus(repo: JjRepo, data: StatusData): Rendered {
   const out = new StatusBuilder();

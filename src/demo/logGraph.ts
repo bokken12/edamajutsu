@@ -2,7 +2,9 @@
 // eyeballing the graph + record output without opening VSCode.
 // Usage: npm run demo:log:graph -- [limit]
 
-import { JjDriver } from '../jj/driver';
+import { Effect } from 'effect';
+
+import { makeDriver } from '../jj/driver';
 import { findJjRepo } from '../jj/repo';
 import { formatChangeOneLine } from '../render/formatChange';
 
@@ -16,12 +18,12 @@ async function main(): Promise<void> {
   const limitArg = process.argv[2];
   const limit = limitArg ? Number.parseInt(limitArg, 10) : undefined;
 
-  const driver = new JjDriver({ repoRoot: repo.root });
+  const driver = makeDriver({ repoRoot: repo.root });
   const opts: { limit?: number } = {};
   if (limit !== undefined) {
     opts.limit = limit;
   }
-  const lines = await driver.logGraph(opts);
+  const lines = await Effect.runPromise(driver.logGraph(opts));
 
   for (const line of lines) {
     if (line.kind === 'change') {

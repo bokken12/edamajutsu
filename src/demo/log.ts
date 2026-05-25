@@ -1,7 +1,9 @@
 // Prints the parsed log records for the current working directory's jj repo.
 // Usage (after `npm run compile`): node out/demo/log.js [limit]
 
-import { JjDriver } from '../jj/driver';
+import { Effect } from 'effect';
+
+import { makeDriver } from '../jj/driver';
 import { findJjRepo } from '../jj/repo';
 
 async function main(): Promise<void> {
@@ -14,12 +16,12 @@ async function main(): Promise<void> {
   const limitArg = process.argv[2];
   const limit = limitArg ? Number.parseInt(limitArg, 10) : undefined;
 
-  const driver = new JjDriver({ repoRoot: repo.root });
+  const driver = makeDriver({ repoRoot: repo.root });
   const opts: { limit?: number } = {};
   if (limit !== undefined) {
     opts.limit = limit;
   }
-  const changes = await driver.log(opts);
+  const changes = await Effect.runPromise(driver.log(opts));
 
   for (const change of changes) {
     const flags = [
