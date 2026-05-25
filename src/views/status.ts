@@ -2,45 +2,30 @@ import * as vscode from 'vscode';
 
 import { JjDriver } from '../jj/driver';
 import { formatJjError, JjSpawnError, JjUnexpectedOutput } from '../jj/errors';
-import { FileDiff } from '../jj/parse';
 import { JjRepo, findJjRepo } from '../jj/repo';
 import { Change } from '../model/change';
-import { FileChangeKind } from '../model/fileChange';
-import { DecoratedDocBuilder, DecoratedLine, DecorationRanges, LineBuilder } from '../render/decoratedText';
-import { DecorationKey } from '../render/decorations';
-import { fileKindGlyph } from '../render/fileKind';
+import { DecorationRanges } from '../render/decoratedText';
+import { StatusData, buildTree } from './statusTree';
+import { Node, Rendered, render } from './viewTree';
 
 export const STATUS_URI = vscode.Uri.from({ scheme: 'edamajutsu', path: 'status.edamajutsu' });
 
-type StatusData = {
-  readonly workingCopy: Change;
-  readonly parent: Change | undefined;
-  // Each entry carries both its file kind (for the path-line decoration) and
-  // its unified-diff body (rendered inline beneath the path with its own
-  // fold range). Comes from a single combined `jj log -T` call — see
-  // `JjDriver.revisionDiff`.
-  readonly files: ReadonlyArray<FileDiff>;
-};
-
-type Rendered = {
-  readonly text: string;
-  readonly foldingRanges: ReadonlyArray<vscode.FoldingRange>;
-  // For each line index, the Change that line "belongs to" (used by `RET`
-  // to drill into the commit detail). Undefined for header / blank / non-
-  // change rows.
-  readonly lineToChange: ReadonlyArray<Change | undefined>;
-  readonly decorations: DecorationRanges;
-};
-
 const INITIAL: Rendered = {
   text: 'Loading...',
-  foldingRanges: [],
+  decorations: new Map(),
   lineToChange: [],
-  decorations: new Map()
+  lineToFoldId: [],
+  effective: new Map()
 };
 
 export class StatusView implements vscode.TextDocumentContentProvider {
   private rendered: Rendered = INITIAL;
+  // The last successfully built tree, if any. Re-rendered on fold toggle so
+  // we don't re-spawn jj for a UI-only change.
+  private tree: ReadonlyArray<Node> | undefined = undefined;
+  // User-explicit fold overrides keyed by fold id. Survives refreshes; only
+  // user input mutates it.
+  private readonly fold = new Map<string, boolean>();
   private refreshToken = 0;
   private readonly onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.onDidChangeEmitter.event;
@@ -48,10 +33,6 @@ export class StatusView implements vscode.TextDocumentContentProvider {
 
   provideTextDocumentContent(_uri: vscode.Uri): string {
     return this.rendered.text;
-  }
-
-  getFoldingRanges(): ReadonlyArray<vscode.FoldingRange> {
-    return this.rendered.foldingRanges;
   }
 
   getDecorations(): DecorationRanges {
@@ -62,27 +43,51 @@ export class StatusView implements vscode.TextDocumentContentProvider {
     return this.rendered.lineToChange[line];
   }
 
+  // Tab handler: flips the innermost fold under the cursor. No-op if the
+  // line isn't inside any fold. Re-renders against the existing tree (no
+  // jj round-trip) and fires onDidChange so VSCode picks up the new text.
+  toggleFoldAtLine(line: number): void {
+    const id = this.rendered.lineToFoldId[line];
+    if (!id || !this.tree) {
+      return;
+    }
+    const current = this.rendered.effective.get(id);
+    if (current === undefined) {
+      // Defensive: a fold id appears in lineToFoldId iff render emitted at
+      // least its header, which always records the effective state.
+      return;
+    }
+    this.fold.set(id, !current);
+    this.rendered = render(this.tree, this.fold);
+    this.onDidChangeEmitter.fire(STATUS_URI);
+  }
+
   async refresh(snapshot: boolean): Promise<void> {
     const token = ++this.refreshToken;
     const next = await this.produce(snapshot);
     if (token !== this.refreshToken) {
       return;
     }
-    this.rendered = next;
+    this.tree = next.tree;
+    this.rendered = next.rendered;
     this.onDidChangeEmitter.fire(STATUS_URI);
   }
 
-  private async produce(snapshot: boolean): Promise<Rendered> {
+  private async produce(snapshot: boolean): Promise<{
+    tree: ReadonlyArray<Node> | undefined;
+    rendered: Rendered;
+  }> {
     const folder = vscode.workspace.workspaceFolders?.[0];
     const repo = folder ? findJjRepo(folder.uri.fsPath) : undefined;
     if (!repo) {
-      return plainRendered(renderNoRepo());
+      return { tree: undefined, rendered: plainRendered(renderNoRepo()) };
     }
     try {
       const data = await fetchStatus(new JjDriver({ repoRoot: repo.root }), snapshot);
-      return renderStatus(repo, data);
+      const tree = buildTree(repo, data);
+      return { tree, rendered: render(tree, this.fold) };
     } catch (err) {
-      return plainRendered(renderError(repo, err));
+      return { tree: undefined, rendered: plainRendered(renderError(repo, err)) };
     }
   }
 }
@@ -116,9 +121,10 @@ function plainRendered(text: string): Rendered {
   const lines = text.split('\n');
   return {
     text,
-    foldingRanges: [],
+    decorations: new Map(),
     lineToChange: lines.map(() => undefined),
-    decorations: new Map()
+    lineToFoldId: lines.map(() => undefined),
+    effective: new Map()
   };
 }
 
@@ -147,160 +153,4 @@ function renderError(repo: JjRepo, err: unknown): string {
     ...hint,
     ''
   ].join('\n');
-}
-
-function renderStatus(repo: JjRepo, data: StatusData): Rendered {
-  const out = new StatusBuilder();
-  out.plain('edamajutsu: status');
-  out.plain('');
-  out.plain(`Repository: ${repo.root}`);
-  out.plain('');
-
-  out.section(data.workingCopy, () => renderChangeSection('Working copy:', data.workingCopy));
-  if (data.parent && !isRootChange(data.parent)) {
-    out.section(data.parent, () => renderChangeSection('Parent commit:', data.parent!));
-  }
-  if (data.files.length > 0) {
-    // Files belong to the working copy — pressing RET on a file row drills
-    // into @'s commit detail. Inside the section, each file gets its own
-    // fold range covering the file path line + its inline diff body so Tab
-    // on a file row collapses just that file rather than the whole section.
-    renderFilesSection(out, data.workingCopy, data.files);
-  }
-  return out.build();
-}
-
-// Wraps DecoratedDocBuilder with the status-specific bookkeeping: folding
-// ranges per section and the line-to-change map for `RET` navigation.
-class StatusBuilder {
-  private readonly doc = new DecoratedDocBuilder();
-  private readonly foldingRanges: vscode.FoldingRange[] = [];
-  private readonly lineToChange: Array<Change | undefined> = [];
-
-  // Plain un-decorated text. `change` defaults to undefined — pass one to
-  // attach the line to a change for RET navigation (e.g. the diff bodies
-  // under each file belong to the working copy).
-  plain(text: string, change?: Change): void {
-    this.doc.pushPlain(text);
-    this.lineToChange.push(change);
-  }
-
-  // Decorated line associated with `change` for RET navigation. Used by
-  // callers that need to interleave their own folding ranges with the lines
-  // (the standard `section()` helper doesn't expose intermediate line
-  // indices).
-  push(line: DecoratedLine, change: Change | undefined): void {
-    this.doc.push(line);
-    this.lineToChange.push(change);
-  }
-
-  // Records a fold range from `start` (inclusive) to `end` (inclusive).
-  // No-op if the range would cover one line or less — VSCode refuses to
-  // collapse a fold that doesn't span at least one additional line.
-  fold(start: number, end: number): void {
-    if (end > start) {
-      this.foldingRanges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
-    }
-  }
-
-  currentLine(): number {
-    return this.doc.currentLine();
-  }
-
-  section(change: Change, produce: () => DecoratedLine[]): void {
-    const start = this.doc.currentLine();
-    const body = produce();
-    for (const line of body) {
-      this.doc.push(line);
-      this.lineToChange.push(change);
-    }
-    this.fold(start, this.doc.currentLine() - 1);
-    this.doc.pushPlain('');
-    this.lineToChange.push(undefined);
-  }
-
-  build(): Rendered {
-    return {
-      text: this.doc.text(),
-      foldingRanges: this.foldingRanges,
-      lineToChange: this.lineToChange,
-      decorations: this.doc.decorations()
-    };
-  }
-}
-
-function renderChangeSection(header: string, change: Change): DecoratedLine[] {
-  const headerLine = new LineBuilder()
-    .dec('sectionHeader', header)
-    .plain(' ')
-    .dec('changeId', change.changeId.slice(0, 8))
-    .plain(' ')
-    .dec('commitId', change.commitId.slice(0, 8));
-
-  if (change.bookmarks.length > 0) {
-    headerLine.plain(' ').dec('bookmark', `[${change.bookmarks.join(', ')}]`);
-  }
-  if (change.isConflicted) {
-    headerLine.dec('conflict', ' (conflict)');
-  }
-  if (change.isEmpty) {
-    headerLine.dec('empty', ' (empty)');
-  }
-
-  return [
-    headerLine.build(),
-    new LineBuilder()
-      .plain('  ')
-      .plain(change.descriptionFirstLine || '(no description set)')
-      .build(),
-    new LineBuilder().plain(`  ${change.authorName} <${change.authorEmail}>`).build()
-  ];
-}
-
-function renderFilesSection(
-  out: StatusBuilder,
-  workingCopy: Change,
-  files: ReadonlyArray<FileDiff>
-): void {
-  const sectionStart = out.currentLine();
-  out.push(
-    new LineBuilder().dec('sectionHeader', `Working copy changes (${files.length}):`).build(),
-    workingCopy
-  );
-  for (const file of files) {
-    const fileStart = out.currentLine();
-    out.push(
-      new LineBuilder()
-        .plain('  ')
-        .dec(fileKindDecoration(file.kind), fileKindGlyph(file.kind))
-        .plain(` ${file.path}`)
-        .build(),
-      workingCopy
-    );
-    for (const diffLine of file.body) {
-      out.plain(diffLine, workingCopy);
-    }
-    out.fold(fileStart, out.currentLine() - 1);
-  }
-  out.fold(sectionStart, out.currentLine() - 1);
-  out.plain('');
-}
-
-function fileKindDecoration(kind: FileChangeKind): DecorationKey {
-  switch (kind) {
-    case 'added':
-      return 'fileAdded';
-    case 'modified':
-      return 'fileModified';
-    case 'deleted':
-      return 'fileDeleted';
-    case 'renamed':
-      return 'fileRenamed';
-    case 'copied':
-      return 'fileCopied';
-  }
-}
-
-function isRootChange(change: Change): boolean {
-  return /^z+$/.test(change.changeId);
 }
