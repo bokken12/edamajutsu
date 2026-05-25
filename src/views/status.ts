@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { JjDriver } from '../jj/driver';
+import { formatJjError, JjSpawnError, JjUnexpectedOutput } from '../jj/errors';
 import { JjRepo, findJjRepo } from '../jj/repo';
 import { Change } from '../model/change';
 import { FileChange, FileChangeKind } from '../model/fileChange';
@@ -90,7 +91,7 @@ export async function openStatus(view: StatusView): Promise<void> {
 async function fetchStatus(driver: JjDriver, snapshot: boolean): Promise<StatusData> {
   const [workingCopy] = await driver.log({ revset: '@', limit: 1, snapshot });
   if (!workingCopy) {
-    throw new Error('jj log @ returned no records');
+    throw new JjUnexpectedOutput('jj log @ returned no records');
   }
   const [parent] = await driver.log({ revset: '@-', limit: 1 });
   const files = await driver.diffSummary();
@@ -118,8 +119,8 @@ function renderNoRepo(): string {
 }
 
 function renderError(repo: JjRepo, err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  const hint = /\bENOENT\b/.test(message)
+  const message = formatJjError(err);
+  const hint = err instanceof JjSpawnError
     ? ['', 'Hint: the `jj` binary was not found on PATH. Install Jujutsu and re-open this view.']
     : [];
   return [

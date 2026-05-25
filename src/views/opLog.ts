@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { JjDriver } from '../jj/driver';
+import { formatJjError, JjSpawnError } from '../jj/errors';
 import { findJjRepo, JjRepo } from '../jj/repo';
 import { Operation } from '../model/operation';
 import { DecorationRanges } from '../render/decoratedText';
@@ -93,8 +94,8 @@ function renderNoRepo(): string {
 }
 
 function renderError(repo: JjRepo, err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  const hint = /\bENOENT\b/.test(message)
+  const message = formatJjError(err);
+  const hint = err instanceof JjSpawnError
     ? ['', 'Hint: the `jj` binary was not found on PATH.']
     : [];
   return [

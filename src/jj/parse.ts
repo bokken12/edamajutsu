@@ -1,6 +1,7 @@
 import { Change, changeId, commitId } from '../model/change';
 import { FileChange, FileChangeKind } from '../model/fileChange';
 import { Operation, operationId } from '../model/operation';
+import { JjParseError } from './errors';
 import {
   FIELD_SEP,
   FieldKind,
@@ -20,13 +21,6 @@ import {
 export type GraphLine =
   | { readonly kind: 'change'; readonly graphPrefix: string; readonly change: Change }
   | { readonly kind: 'graphOnly'; readonly text: string };
-
-export class JjParseError extends Error {
-  constructor(message: string, readonly raw: string) {
-    super(message);
-    this.name = 'JjParseError';
-  }
-}
 
 export function parseLogRecords(stdout: string): Change[] {
   return splitTrailingNewline(stdout).map(parseLogRecord);

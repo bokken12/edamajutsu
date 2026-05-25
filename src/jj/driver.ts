@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import { Change } from '../model/change';
 import { FileChange } from '../model/fileChange';
 import { Operation } from '../model/operation';
+import { JjCommandFailed, JjSpawnError, JjValidationError } from './errors';
 import {
   GraphLine,
   parseDiffSummary,
@@ -22,24 +23,6 @@ export type JjResult = {
   readonly exitCode: number | null;
   readonly signal: NodeJS.Signals | null;
 };
-
-export class JjCommandError extends Error {
-  constructor(
-    readonly args: ReadonlyArray<string>,
-    readonly result: JjResult
-  ) {
-    const exit = result.signal !== null ? `signal ${result.signal}` : `code ${result.exitCode}`;
-    const tail =
-      [
-        result.stderr.trim() && `stderr: ${result.stderr.trim()}`,
-        result.stdout.trim() && `stdout: ${result.stdout.trim()}`
-      ]
-        .filter(Boolean)
-        .join('\n') || '(no output)';
-    super(`jj ${args.join(' ')} exited with ${exit}\n${tail}`);
-    this.name = 'JjCommandError';
-  }
-}
 
 export type CommandOptions = {
   // When true, jj will snapshot the working copy before answering. Default
@@ -120,7 +103,7 @@ export class JjDriver {
     const args = ['op', 'log', '--no-graph', '-T', OP_LOG_TEMPLATE];
     if (opts?.limit !== undefined) {
       if (!Number.isInteger(opts.limit) || opts.limit < 0) {
-        throw new Error(`op log limit must be a non-negative integer, got ${opts.limit}`);
+        throw new JjValidationError(`op log limit must be a non-negative integer, got ${opts.limit}`);
       }
       args.push('-n', String(opts.limit));
     }
@@ -282,7 +265,7 @@ export class JjDriver {
   ): Promise<JjResult> {
     const result = await this.run(args, opts);
     if (result.exitCode !== 0 || result.signal !== null) {
-      throw new JjCommandError(args, result);
+      throw new JjCommandFailed(args, result);
     }
     return result;
   }
@@ -294,7 +277,7 @@ function appendLogOpts(args: string[], opts: LogOptions | undefined): void {
   }
   if (opts?.limit !== undefined) {
     if (!Number.isInteger(opts.limit) || opts.limit < 0) {
-      throw new Error(`log limit must be a non-negative integer, got ${opts.limit}`);
+      throw new JjValidationError(`log limit must be a non-negative integer, got ${opts.limit}`);
     }
     args.push('-n', String(opts.limit));
   }
@@ -320,7 +303,7 @@ function runProcess(
     });
 
     proc.on('error', (err) => {
-      reject(err);
+      reject(new JjSpawnError(binary, err));
     });
     proc.on('close', (code, signal) => {
       resolve({ stdout, stderr, exitCode: code, signal });

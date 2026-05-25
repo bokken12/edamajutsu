@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { JjDriver } from '../jj/driver';
+import { formatJjError } from '../jj/errors';
 import { findJjRepo, JjRepo } from '../jj/repo';
 import { ChangeId } from '../model/change';
 import { CommitDetailView, COMMIT_DETAIL_URI } from '../views/commitDetail';
@@ -200,7 +201,7 @@ export class AppContext {
     try {
       candidates = await new JjDriver({ repoRoot: repo.root }).log({});
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatJjError(err);
       vscode.window.showErrorMessage(`edamajutsu: listing destinations failed — ${message}`);
       return;
     }
@@ -338,7 +339,7 @@ export class AppContext {
     try {
       await action(new JjDriver({ repoRoot: repo.root }));
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatJjError(err);
       vscode.window.showErrorMessage(`edamajutsu: ${label} failed — ${message}`);
       return;
     } finally {
@@ -386,7 +387,7 @@ export class AppContext {
     try {
       bookmarks = await new JjDriver({ repoRoot: repo.root }).listBookmarks();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatJjError(err);
       vscode.window.showErrorMessage(`edamajutsu: listing bookmarks failed — ${message}`);
       return undefined;
     }
