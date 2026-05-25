@@ -293,8 +293,12 @@ export class AppContext {
   // ---- Internal helpers ----
 
   // Returns the change-id under the user's intent: cursor position in
-  // status/log, or commit-detail's current change. Undefined if no edamajutsu
-  // view is active or the cursor isn't on a change row.
+  // status/log, or commit-detail's current change. In the status view the
+  // working copy is the default when the cursor isn't on a change row —
+  // the status view is fundamentally about @, so commands like `r` should
+  // act on it rather than erroring with "no change selected" because the
+  // cursor was resting on the title or a blank line. Undefined if no
+  // edamajutsu view is active.
   private activeChangeId(): ChangeId | undefined {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
@@ -302,7 +306,8 @@ export class AppContext {
     }
     const uri = editor.document.uri.toString();
     if (uri === STATUS_URI.toString()) {
-      return this.status.changeAtLine(editor.selection.active.line)?.changeId;
+      const atCursor = this.status.changeAtLine(editor.selection.active.line);
+      return (atCursor ?? this.status.workingCopyChange())?.changeId;
     }
     if (uri === LOG_URI.toString()) {
       return this.log.changeAtLine(editor.selection.active.line)?.changeId;

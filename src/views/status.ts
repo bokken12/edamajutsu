@@ -30,13 +30,18 @@ type Rendered = {
   // change rows.
   readonly lineToChange: ReadonlyArray<Change | undefined>;
   readonly decorations: DecorationRanges;
+  // The working-copy change last rendered, if any. Acts as the default
+  // target for commands invoked from the status view when the cursor isn't
+  // on a change row.
+  readonly workingCopy: Change | undefined;
 };
 
 const INITIAL: Rendered = {
   text: 'Loading...',
   foldingRanges: [],
   lineToChange: [],
-  decorations: new Map()
+  decorations: new Map(),
+  workingCopy: undefined
 };
 
 export class StatusView implements vscode.TextDocumentContentProvider {
@@ -60,6 +65,14 @@ export class StatusView implements vscode.TextDocumentContentProvider {
 
   changeAtLine(line: number): Change | undefined {
     return this.rendered.lineToChange[line];
+  }
+
+  // Default change for status-view commands: the working copy. Used as a
+  // fallback when the cursor isn't on a change row so e.g. `r` (rebase)
+  // doesn't error with "no change selected" just because the cursor was
+  // resting on the title or a blank line.
+  workingCopyChange(): Change | undefined {
+    return this.rendered.workingCopy;
   }
 
   async refresh(snapshot: boolean): Promise<void> {
@@ -118,7 +131,8 @@ function plainRendered(text: string): Rendered {
     text,
     foldingRanges: [],
     lineToChange: lines.map(() => undefined),
-    decorations: new Map()
+    decorations: new Map(),
+    workingCopy: undefined
   };
 }
 
@@ -167,7 +181,7 @@ function renderStatus(repo: JjRepo, data: StatusData): Rendered {
     // on a file row collapses just that file rather than the whole section.
     renderFilesSection(out, data.workingCopy, data.files);
   }
-  return out.build();
+  return out.build(data.workingCopy);
 }
 
 // Wraps DecoratedDocBuilder with the status-specific bookkeeping: folding
@@ -219,12 +233,13 @@ class StatusBuilder {
     this.lineToChange.push(undefined);
   }
 
-  build(): Rendered {
+  build(workingCopy: Change | undefined): Rendered {
     return {
       text: this.doc.text(),
       foldingRanges: this.foldingRanges,
       lineToChange: this.lineToChange,
-      decorations: this.doc.decorations()
+      decorations: this.doc.decorations(),
+      workingCopy
     };
   }
 }
