@@ -4,17 +4,20 @@ import { FileChange } from '../model/fileChange';
 import { Operation } from '../model/operation';
 import { JjCommandFailed, JjSpawnError, JjValidationError } from './errors';
 import {
+  FileDiff,
   GraphLine,
   parseDiffSummary,
   parseGraphLog,
   parseLogRecords,
-  parseOpLogRecords
+  parseOpLogRecords,
+  parseRevisionDiffWithSummary
 } from './parse';
 import {
   DIFF_SUMMARY_TEMPLATE,
   LOG_GRAPH_TEMPLATE,
   LOG_TEMPLATE,
-  OP_LOG_TEMPLATE
+  OP_LOG_TEMPLATE,
+  REVISION_DIFF_WITH_SUMMARY_TEMPLATE
 } from './templates';
 
 export type JjResult = {
@@ -119,6 +122,26 @@ export class JjDriver {
     const args = ['diff', '--git', '-r', opts.revset];
     const result = await this.runChecked(args, opts);
     return result.stdout;
+  }
+
+  // Single-call variant returning the summary (kind + path per file) merged
+  // with the per-file unified-diff bodies. Routes through `jj log -T` with a
+  // combined template, so callers get everything they need to render a file
+  // list with inline diffs in one subprocess instead of two (one
+  // `diff -T summary` + one `diff --git`).
+  async revisionDiff(opts: { readonly revset: string } & CommandOptions): Promise<FileDiff[]> {
+    const args = [
+      'log',
+      '--no-graph',
+      '-r',
+      opts.revset,
+      '-n',
+      '1',
+      '-T',
+      REVISION_DIFF_WITH_SUMMARY_TEMPLATE
+    ];
+    const result = await this.runChecked(args, opts);
+    return parseRevisionDiffWithSummary(result.stdout);
   }
 
   // Rolls back the most recent operation. Mutating, so it always snapshots

@@ -2,9 +2,10 @@ import * as vscode from 'vscode';
 
 import { JjDriver } from '../jj/driver';
 import { formatJjError, JjSpawnError, JjUnexpectedOutput } from '../jj/errors';
+import { FileDiff } from '../jj/parse';
 import { JjRepo, findJjRepo } from '../jj/repo';
 import { Change } from '../model/change';
-import { FileChange, FileChangeKind } from '../model/fileChange';
+import { FileChangeKind } from '../model/fileChange';
 import { DecoratedDocBuilder, DecoratedLine, DecorationRanges, LineBuilder } from '../render/decoratedText';
 import { DecorationKey } from '../render/decorations';
 import { fileKindGlyph } from '../render/fileKind';
@@ -14,7 +15,11 @@ export const STATUS_URI = vscode.Uri.from({ scheme: 'edamajutsu', path: 'status.
 type StatusData = {
   readonly workingCopy: Change;
   readonly parent: Change | undefined;
-  readonly files: ReadonlyArray<FileChange>;
+  // Each entry carries both its file kind (for the path-line decoration) and
+  // its unified-diff body (rendered inline beneath the path with its own
+  // fold range). Comes from a single combined `jj log -T` call — see
+  // `JjDriver.revisionDiff`.
+  readonly files: ReadonlyArray<FileDiff>;
 };
 
 type Rendered = {
@@ -89,13 +94,22 @@ export async function openStatus(view: StatusView): Promise<void> {
 }
 
 async function fetchStatus(driver: JjDriver, snapshot: boolean): Promise<StatusData> {
-  const [workingCopy] = await driver.log({ revset: '@', limit: 1, snapshot });
+  // Three independent reads of working-copy state — fired in parallel. All
+  // three get the same `snapshot` flag so they end up consistent: jj
+  // serialises snapshotting on a lock, the first command to acquire it
+  // actually snapshots, the rest are no-ops on the lock and then run against
+  // the post-snapshot state. `revisionDiff` does in one jj subprocess what
+  // a `diffSummary` + `diffText` pair used to do separately.
+  const [workingCopyRecords, parentRecords, files] = await Promise.all([
+    driver.log({ revset: '@', limit: 1, snapshot }),
+    driver.log({ revset: '@-', limit: 1, snapshot }),
+    driver.revisionDiff({ revset: '@', snapshot })
+  ]);
+  const workingCopy = workingCopyRecords[0];
   if (!workingCopy) {
     throw new JjUnexpectedOutput('jj log @ returned no records');
   }
-  const [parent] = await driver.log({ revset: '@-', limit: 1 });
-  const files = await driver.diffSummary();
-  return { workingCopy, parent, files };
+  return { workingCopy, parent: parentRecords[0], files };
 }
 
 function plainRendered(text: string): Rendered {
@@ -148,8 +162,10 @@ function renderStatus(repo: JjRepo, data: StatusData): Rendered {
   }
   if (data.files.length > 0) {
     // Files belong to the working copy — pressing RET on a file row drills
-    // into @'s commit detail.
-    out.section(data.workingCopy, () => renderFilesSection(data.files));
+    // into @'s commit detail. Inside the section, each file gets its own
+    // fold range covering the file path line + its inline diff body so Tab
+    // on a file row collapses just that file rather than the whole section.
+    renderFilesSection(out, data.workingCopy, data.files);
   }
   return out.build();
 }
@@ -161,9 +177,34 @@ class StatusBuilder {
   private readonly foldingRanges: vscode.FoldingRange[] = [];
   private readonly lineToChange: Array<Change | undefined> = [];
 
-  plain(text: string): void {
+  // Plain un-decorated text. `change` defaults to undefined — pass one to
+  // attach the line to a change for RET navigation (e.g. the diff bodies
+  // under each file belong to the working copy).
+  plain(text: string, change?: Change): void {
     this.doc.pushPlain(text);
-    this.lineToChange.push(undefined);
+    this.lineToChange.push(change);
+  }
+
+  // Decorated line associated with `change` for RET navigation. Used by
+  // callers that need to interleave their own folding ranges with the lines
+  // (the standard `section()` helper doesn't expose intermediate line
+  // indices).
+  push(line: DecoratedLine, change: Change | undefined): void {
+    this.doc.push(line);
+    this.lineToChange.push(change);
+  }
+
+  // Records a fold range from `start` (inclusive) to `end` (inclusive).
+  // No-op if the range would cover one line or less — VSCode refuses to
+  // collapse a fold that doesn't span at least one additional line.
+  fold(start: number, end: number): void {
+    if (end > start) {
+      this.foldingRanges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
+    }
+  }
+
+  currentLine(): number {
+    return this.doc.currentLine();
   }
 
   section(change: Change, produce: () => DecoratedLine[]): void {
@@ -173,10 +214,7 @@ class StatusBuilder {
       this.doc.push(line);
       this.lineToChange.push(change);
     }
-    const end = this.doc.currentLine() - 1;
-    if (end > start) {
-      this.foldingRanges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
-    }
+    this.fold(start, this.doc.currentLine() - 1);
     this.doc.pushPlain('');
     this.lineToChange.push(undefined);
   }
@@ -219,20 +257,33 @@ function renderChangeSection(header: string, change: Change): DecoratedLine[] {
   ];
 }
 
-function renderFilesSection(files: ReadonlyArray<FileChange>): DecoratedLine[] {
-  const lines: DecoratedLine[] = [
-    new LineBuilder().dec('sectionHeader', `Working copy changes (${files.length}):`).build()
-  ];
+function renderFilesSection(
+  out: StatusBuilder,
+  workingCopy: Change,
+  files: ReadonlyArray<FileDiff>
+): void {
+  const sectionStart = out.currentLine();
+  out.push(
+    new LineBuilder().dec('sectionHeader', `Working copy changes (${files.length}):`).build(),
+    workingCopy
+  );
   for (const file of files) {
-    lines.push(
+    const fileStart = out.currentLine();
+    out.push(
       new LineBuilder()
         .plain('  ')
         .dec(fileKindDecoration(file.kind), fileKindGlyph(file.kind))
         .plain(` ${file.path}`)
-        .build()
+        .build(),
+      workingCopy
     );
+    for (const diffLine of file.body) {
+      out.plain(diffLine, workingCopy);
+    }
+    out.fold(fileStart, out.currentLine() - 1);
   }
-  return lines;
+  out.fold(sectionStart, out.currentLine() - 1);
+  out.plain('');
 }
 
 function fileKindDecoration(kind: FileChangeKind): DecorationKey {

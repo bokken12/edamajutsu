@@ -5,7 +5,8 @@ import {
   parseDiffSummary,
   parseGraphLog,
   parseLogRecords,
-  parseOpLogRecords
+  parseOpLogRecords,
+  parseRevisionDiffWithSummary
 } from '../jj/parse';
 import { FIELD_SEP, LIST_ITEM_SEP, RECORD_PREFIX } from '../jj/templates';
 
@@ -241,6 +242,39 @@ test('diff-summary empty input yields empty array', () => {
 
 test('diff-summary rejects unknown status strings', () => {
   expect(() => parseDiffSummary(`weirdstatus${FIELD_SEP}a.txt\n`)).toThrow(JjParseError);
+});
+
+// Real jj output is exercised end-to-end in driver.test.ts; the unit tests
+// here cover the protocol-level invariants the parser enforces against
+// malformed input that jj itself wouldn't produce.
+
+test('parseRevisionDiffWithSummary throws when summary entries lack diff blocks', () => {
+  // Summary mentions x.ts but the diff section has no matching `diff --git`
+  // header.
+  const stdout = `added\x1ex.ts\n\x1f`;
+  expect(() => parseRevisionDiffWithSummary(stdout)).toThrow(JjParseError);
+});
+
+test('parseRevisionDiffWithSummary throws when diff blocks lack summary entries', () => {
+  // Diff section has x.ts but summary doesn't list it.
+  const stdout = `\x1fdiff --git a/x.ts b/x.ts\n@@ -1 +1 @@\n-a\n+b\n`;
+  expect(() => parseRevisionDiffWithSummary(stdout)).toThrow(JjParseError);
+});
+
+test('parseRevisionDiffWithSummary throws on duplicate diff blocks', () => {
+  const stdout =
+    `added\x1ex.ts\n\x1f` +
+    `diff --git a/x.ts b/x.ts\n@@ -1 +1 @@\n+a\n` +
+    `diff --git a/x.ts b/x.ts\n@@ -1 +1 @@\n+b\n`;
+  expect(() => parseRevisionDiffWithSummary(stdout)).toThrow(JjParseError);
+});
+
+test('parseRevisionDiffWithSummary throws when the section separator is missing', () => {
+  expect(() => parseRevisionDiffWithSummary('added\x1ex.ts\n')).toThrow(JjParseError);
+});
+
+test('parseRevisionDiffWithSummary returns empty for empty input', () => {
+  expect(parseRevisionDiffWithSummary('')).toEqual([]);
 });
 
 test('graph log splits data rows from continuation rows', () => {
